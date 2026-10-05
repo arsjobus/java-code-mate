@@ -1,4 +1,4 @@
-# Intentional Code Editor
+# Code Mate
 
 A local-first Java code editor built around the principles of intentional computing.
 
@@ -49,7 +49,7 @@ intentional-code-editor/
 ├── SECURITY.md
 ├── BUGS.md
 └── src/
-    ├── main/java/com/intentional/editor/App.java
+    ├── main/java/com/code_mate/App.java
     └── main/resources/styles/editor.css
 ```
 

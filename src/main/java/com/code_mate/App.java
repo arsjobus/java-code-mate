@@ -1,4 +1,4 @@
-package com.intentional.editor;
+package com.code_mate;
 
 import javafx.application.Application;
 import javafx.geometry.Insets;
@@ -19,7 +19,7 @@ public final class App extends Application {
 
     @Override
     public void start(Stage stage) {
-        stage.setTitle("Intentional Code Editor");
+        stage.setTitle("Code Mate");
 
         editor.setWrapText(false);
         editor.setStyle("-fx-font-family: 'Monospaced'; -fx-font-size: 14px;");

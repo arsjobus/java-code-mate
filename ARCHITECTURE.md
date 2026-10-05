@@ -28,7 +28,7 @@ Application
 ## Package layout
 
 ```text
-com.intentional.editor
+com.code_mate
 ├── App.java
 ├── core
 ├── document
