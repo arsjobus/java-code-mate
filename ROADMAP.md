@@ -15,13 +15,13 @@
 
 ## v0.2 — Project editor
 
-- [ ] Open directory
-- [ ] File tree
-- [ ] Multiple open files
-- [ ] Tabs
-- [ ] Dirty-state indicators
-- [ ] Project navigation
-- [ ] Recent projects
+- [x] Open directory
+- [x] File tree
+- [x] Multiple open files
+- [x] Tabs
+- [x] Dirty-state indicators
+- [x] Project navigation
+- [x] Recent projects
 
 ## v0.3 — Developer editor
 
