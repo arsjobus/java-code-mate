@@ -25,15 +25,15 @@
 
 ## v0.3 — Developer editor
 
-- [ ] Syntax highlighting
-- [ ] Search
-- [ ] Replace
-- [ ] Go to line
-- [ ] Go to file
-- [ ] Code folding
-- [ ] Bracket matching
-- [ ] Auto indentation
-- [ ] Multiple cursors
+- [x] Syntax highlighting
+- [x] Search
+- [x] Replace
+- [x] Go to line
+- [x] Go to file
+- [x] Code folding
+- [x] Bracket matching
+- [x] Auto indentation
+- [x] Multiple cursors
 
 ## v0.4 — Build and run
 

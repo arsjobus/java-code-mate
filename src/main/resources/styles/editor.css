@@ -1,1 +1,8 @@
-/* Reserved for the editor theme system. */
+/* v0.3 syntax highlighting baseline. */
+.code-area { -fx-font-family: "Monospaced"; -fx-font-size: 14px; }
+.code-area .keyword { -fx-fill: #0000cc; }
+.code-area .type { -fx-fill: #267f99; }
+.code-area .string { -fx-fill: #a31515; }
+.code-area .comment { -fx-fill: #008000; }
+.code-area .annotation { -fx-fill: #795e26; }
+.code-area .number { -fx-fill: #098658; }
