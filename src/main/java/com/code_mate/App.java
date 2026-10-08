@@ -1,7 +1,19 @@
 package com.code_mate;
 
+import com.code_mate.build.BuildSystem;
+import com.code_mate.build.ManagedProcess;
+import com.code_mate.build.Problem;
+import com.code_mate.build.ProblemParser;
+import com.code_mate.build.ProcessManager;
+import com.code_mate.build.ShellCommand;
+import com.code_mate.ui.OutputPanel;
+import com.code_mate.ui.ProblemsPanel;
+import com.code_mate.ui.TerminalPanel;
 import javafx.application.Application;
+import javafx.application.Platform;
+import javafx.collections.ListChangeListener;
 import javafx.geometry.Insets;
+import javafx.geometry.Orientation;
 import javafx.scene.Node;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
@@ -45,6 +57,15 @@ public final class App extends Application {
     private final Map<Tab, Boolean> dirty = new HashMap<>();
     private final Map<Tab, Subscription> subscriptions = new HashMap<>();
     private final Map<CodeArea, List<CaretNode>> extraCarets = new HashMap<>();
+    private final ProcessManager processes = new ProcessManager();
+    private final OutputPanel output = new OutputPanel();
+    private final ProblemsPanel problems = new ProblemsPanel();
+    private final TerminalPanel terminal = new TerminalPanel(processes, () -> this.projectDirectory);
+    private final Tab outputTab = new Tab("Output", output);
+    private final Tab problemsTab = new Tab("Problems (0)", problems);
+    private final Tab terminalTab = new Tab("Terminal", terminal);
+    private final TabPane bottomTabs = new TabPane(outputTab, problemsTab, terminalTab);
+    private final SplitPane editorSplit = new SplitPane(tabs);
     private File projectDirectory;
 
     @Override public void start(Stage stage) {
@@ -74,7 +95,11 @@ public final class App extends Application {
 
         root.setTop(createMenuBar(stage));
         root.setLeft(sidebar);
-        root.setCenter(tabs);
+        bottomTabs.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
+        editorSplit.setOrientation(Orientation.VERTICAL);
+        problems.setOnOpen(this::openProblem);
+        problems.items().addListener((ListChangeListener<Problem>) c -> problemsTab.setText("Problems (" + problems.items().size() + ")"));
+        root.setCenter(editorSplit);
         HBox statusBar = new HBox(status);
         statusBar.setPadding(new Insets(4, 8, 4, 8));
         root.setBottom(statusBar);
@@ -113,8 +138,19 @@ public final class App extends Application {
         focus.setOnAction(e -> { Node node = projectTree.getParent(); if (node != null) { boolean visible = node.isVisible(); node.setVisible(!visible); node.setManaged(!visible); } });
         MenuItem fold = new MenuItem("Fold Selected"); fold.setOnAction(e -> currentEditor().ifPresent(CodeArea::foldSelectedParagraphs));
         MenuItem unfold = new MenuItem("Unfold Current"); unfold.setOnAction(e -> currentEditor().ifPresent(a -> a.unfoldParagraphs(a.getCurrentParagraph())));
-        view.getItems().addAll(focus, new SeparatorMenuItem(), fold, unfold);
-        return new MenuBar(file, edit, view);
+        MenuItem bottomPanel = new MenuItem("Toggle Bottom Panel"); bottomPanel.setAccelerator(new KeyCodeCombination(KeyCode.J, KeyCodeCombination.CONTROL_DOWN)); bottomPanel.setOnAction(e -> toggleBottomPanel());
+        MenuItem showOutput = new MenuItem("Output"); showOutput.setOnAction(e -> showBottom(outputTab));
+        MenuItem showProblems = new MenuItem("Problems"); showProblems.setOnAction(e -> showBottom(problemsTab));
+        MenuItem showTerminal = new MenuItem("Terminal"); showTerminal.setAccelerator(new KeyCodeCombination(KeyCode.BACK_QUOTE, KeyCodeCombination.CONTROL_DOWN)); showTerminal.setOnAction(e -> { showBottom(terminalTab); terminal.focusInput(); });
+        view.getItems().addAll(focus, new SeparatorMenuItem(), fold, unfold, new SeparatorMenuItem(), bottomPanel, showOutput, showProblems, showTerminal);
+
+        Menu run = new Menu("Run");
+        MenuItem build = new MenuItem("Build"); build.setAccelerator(new KeyCodeCombination(KeyCode.B, KeyCodeCombination.CONTROL_DOWN)); build.setOnAction(e -> build());
+        MenuItem runCommand = new MenuItem("Run Command..."); runCommand.setAccelerator(new KeyCodeCombination(KeyCode.F5)); runCommand.setOnAction(e -> runCommandDialog());
+        MenuItem stopAll = new MenuItem("Stop All Processes"); stopAll.setAccelerator(new KeyCodeCombination(KeyCode.PERIOD, KeyCodeCombination.CONTROL_DOWN)); stopAll.setOnAction(e -> stopAllProcesses());
+        MenuItem manage = new MenuItem("Processes..."); manage.setOnAction(e -> showProcesses());
+        run.getItems().addAll(build, runCommand, new SeparatorMenuItem(), stopAll, manage);
+        return new MenuBar(file, edit, view, run);
     }
 
     private Menu createRecentProjectsMenu() {
@@ -169,6 +205,17 @@ public final class App extends Application {
             Tab tab = createTab(file.getName(), editor, file); tabs.getTabs().add(tab); tabs.getSelectionModel().select(tab);
             dirty.put(tab, false); highlight(editor); status.setText("Opened: " + file.getAbsolutePath());
         } catch (IOException ex) { showError("Could not open file", ex.getMessage()); }
+    }
+
+    private void openFile(File file, int line, int column) {
+        openFile(file);
+        Tab tab = tabs.getSelectionModel().getSelectedItem();
+        if (tab == null || !file.equals(tab.getUserData())) return;
+        currentEditor().ifPresent(a -> {
+            int paragraph = Math.max(0, Math.min(line - 1, a.getParagraphs().size() - 1));
+            a.moveTo(paragraph, Math.min(Math.max(0, column - 1), a.getParagraphLength(paragraph)));
+            a.requestFollowCaret(); a.requestFocus();
+        });
     }
 
     private void newDocument() {
@@ -348,6 +395,77 @@ public final class App extends Application {
         a.setStyleSpans(0, b.create());
     }
 
+    private void showBottom(Tab tab) {
+        if (!editorSplit.getItems().contains(bottomTabs)) { editorSplit.getItems().add(bottomTabs); editorSplit.setDividerPositions(0.7); }
+        bottomTabs.getSelectionModel().select(tab);
+    }
+
+    private void toggleBottomPanel() {
+        if (editorSplit.getItems().contains(bottomTabs)) editorSplit.getItems().remove(bottomTabs);
+        else showBottom(bottomTabs.getSelectionModel().getSelectedItem());
+    }
+
+    private void build() {
+        if (!requireProject("Build")) return;
+        Optional<BuildSystem> system = BuildSystem.detect(projectDirectory);
+        if (system.isEmpty()) { showError("Build", "No supported build file found (pom.xml, build.gradle, Makefile, Cargo.toml, package.json). Use Run > Run Command... instead."); return; }
+        problems.clear();
+        runCommand(system.get().name() + " build", system.get().buildCommand());
+    }
+
+    private void runCommandDialog() {
+        if (!requireProject("Run Command")) return;
+        String key = "run.command." + Integer.toHexString(projectDirectory.getAbsolutePath().hashCode());
+        String suggestion = preferences.get(key, BuildSystem.detect(projectDirectory).map(BuildSystem::suggestedRunCommand).orElse(""));
+        TextInputDialog d = new TextInputDialog(suggestion);
+        d.setTitle("Run Command"); d.setHeaderText("Command to run in " + projectDirectory.getAbsolutePath()); d.setContentText("Command:");
+        d.showAndWait().filter(s -> !s.isBlank()).ifPresent(command -> { preferences.put(key, command.trim()); runCommand("Run", command.trim()); });
+    }
+
+    private boolean requireProject(String title) {
+        if (projectDirectory != null) return true;
+        showError(title, "Open a project directory first.");
+        return false;
+    }
+
+    private void runCommand(String name, String commandLine) {
+        long unsaved = tabs.getTabs().stream().filter(t -> Boolean.TRUE.equals(dirty.get(t))).count();
+        showBottom(outputTab);
+        output.append("$ " + commandLine + "    (in " + projectDirectory.getAbsolutePath() + ")");
+        if (unsaved > 0) output.append("Note: " + unsaved + " unsaved file(s) are not included; the command uses files on disk.");
+        try {
+            processes.start(name, ShellCommand.wrap(commandLine), projectDirectory, new ProcessManager.Listener() {
+                @Override public void onLine(ManagedProcess p, String line) {
+                    Platform.runLater(() -> { output.append(line); ProblemParser.parse(line).ifPresent(problems::add); });
+                }
+                @Override public void onExit(ManagedProcess p, int code) {
+                    Platform.runLater(() -> { output.append("[" + name + " exited with code " + code + "]"); status.setText(name + " exited with code " + code); });
+                }
+            });
+            status.setText("Running: " + commandLine);
+        } catch (IOException ex) { showError("Could not start command", ex.getMessage()); }
+    }
+
+    private void openProblem(Problem problem) {
+        File file = new File(problem.file());
+        if (!file.isAbsolute() && projectDirectory != null) file = new File(projectDirectory, problem.file());
+        if (file.isFile()) openFile(file, problem.line(), problem.column()); else status.setText("File not found: " + problem.file());
+    }
+
+    private void stopAllProcesses() {
+        int count = processes.running().size();
+        processes.stopAll();
+        status.setText(count == 0 ? "No running processes" : "Stopping " + count + " process(es)");
+    }
+
+    private void showProcesses() {
+        List<ManagedProcess> running = processes.running();
+        if (running.isEmpty()) { status.setText("No running processes"); return; }
+        ChoiceDialog<ManagedProcess> d = new ChoiceDialog<>(running.get(running.size() - 1), running);
+        d.setTitle("Processes"); d.setHeaderText("Select a process to stop"); d.setContentText("Process:");
+        d.showAndWait().ifPresent(processes::stop);
+    }
+
     private List<String> recentProjects() {
         List<String> projects = new ArrayList<>();
         for (int i = 0; i < MAX_RECENT_PROJECTS; i++) { String path = preferences.get("recent.project." + i, ""); if (!path.isBlank() && new File(path).isDirectory()) projects.add(path); }
@@ -361,7 +479,7 @@ public final class App extends Application {
 
     private void showError(String title, String message) { Alert a = new Alert(Alert.AlertType.ERROR); a.setTitle(title); a.setHeaderText(null); a.setContentText(message == null ? "Unknown error." : message); a.showAndWait(); }
 
-    @Override public void stop() { subscriptions.values().forEach(Subscription::unsubscribe); }
+    @Override public void stop() { processes.stopAll(); subscriptions.values().forEach(Subscription::unsubscribe); }
 
     public static void main(String[] args) { launch(args); }
 }

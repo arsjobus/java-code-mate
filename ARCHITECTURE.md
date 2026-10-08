@@ -30,6 +30,7 @@ Application
 ```text
 com.code_mate
 ├── App.java
+├── build
 ├── core
 ├── document
 ├── editor

@@ -37,12 +37,12 @@
 
 ## v0.4 — Build and run
 
-- [ ] Integrated terminal
-- [ ] Run commands
-- [ ] Build commands
-- [ ] Process management
-- [ ] Output panel
-- [ ] Problems panel
+- [x] Integrated terminal
+- [x] Run commands
+- [x] Build commands
+- [x] Process management
+- [x] Output panel
+- [x] Problems panel
 
 ## v0.5 — Language intelligence
 

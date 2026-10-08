@@ -6,7 +6,8 @@ Known issues for the initial foundation.
 
 - [ ] The editor currently has no full project/file-tree model.
 - [ ] Syntax highlighting is not implemented.
-- [ ] The application does not yet provide an integrated terminal.
+- [ ] The integrated terminal is line-oriented (no PTY): full-screen programs and job control do not work.
+- [ ] Build output is only parsed for javac/Maven/gcc-style diagnostics; other tools show their output but no problems.
 - [ ] There is no LSP integration.
 - [ ] There is no Git integration.
 - [ ] AI integration is documentation-only at this stage.

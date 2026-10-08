@@ -6,7 +6,7 @@ The editor is designed to be a tool for making software, not a platform for cons
 
 ## Current status
 
-This is the initial project foundation (pre-v0.1).
+Roadmap progress is tracked in `ROADMAP.md`; v0.4 (build and run) is the latest milestone.
 
 Included:
 - Maven build
@@ -14,6 +14,24 @@ Included:
 - Basic editor window
 - File open/save support
 - Project documentation and design principles
+- Build and run: output panel, problems panel, line-oriented terminal, process management
+
+## Build and run (v0.4)
+
+Open a project directory, then use the **Run** menu:
+
+| Action | Shortcut | What it does |
+| --- | --- | --- |
+| Build | Ctrl+B | Runs the detected build command (Maven, Gradle, Make, Cargo, npm) in the project directory. |
+| Run Command... | F5 | Shows an editable command (remembered per project), then runs it. |
+| Stop All Processes | Ctrl+. | Stops every process the editor started. |
+| Processes... | | Pick one running process to stop. |
+
+Output appears in the **Output** panel. Compiler diagnostics (javac, Maven, gcc-style) are collected in
+**Problems**; double-click one to jump to the line. **Terminal** (Ctrl+`) is a persistent shell fed one line
+at a time. It has no PTY, so full-screen programs and job control are unsupported. Toggle the bottom panel with Ctrl+J.
+
+Nothing runs unless you ask for it, commands are echoed before they run, and all child processes are stopped when the editor exits.
 
 ## Requirements
 
@@ -50,6 +68,8 @@ intentional-code-editor/
 ├── BUGS.md
 └── src/
     ├── main/java/com/code_mate/App.java
+    ├── main/java/com/code_mate/build/   (process, build, and diagnostics services)
+    ├── main/java/com/code_mate/ui/      (output, problems, and terminal panels)
     └── main/resources/styles/editor.css
 ```
 
