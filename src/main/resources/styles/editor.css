@@ -6,3 +6,34 @@
 .code-area .comment { -fx-fill: #008000; }
 .code-area .annotation { -fx-fill: #795e26; }
 .code-area .number { -fx-fill: #098658; }
+
+/* Status colors that were hard-coded in Java. */
+.problem-error { -fx-text-fill: #b00020; }
+.problem-warning { -fx-text-fill: #8a6d00; }
+.prompt-venv { -fx-text-fill: #2e7d32; }
+
+/*
+ * Dark theme. Light is the default look above; App adds .theme-dark to the scene root
+ * (and to dialogs) when dark mode is on. The three -fx- variables below re-derive the
+ * standard JavaFX controls; everything after them covers the editor and status colors.
+ * Token rules must stay after ".text" so they win at equal specificity.
+ */
+.root.theme-dark {
+    -fx-base: #3c3f41;
+    -fx-background: #2b2b2b;
+    -fx-control-inner-background: #2b2b2b;
+}
+.theme-dark .code-area { -fx-background-color: #1e1e1e; }
+.theme-dark .code-area .text { -fx-fill: #d4d4d4; }
+.theme-dark .code-area .caret { -fx-stroke: #d4d4d4; }
+.theme-dark .code-area .lineno { -fx-background-color: #252526; -fx-text-fill: #858585; }
+.theme-dark .code-area .lineno .text { -fx-fill: #858585; }
+.theme-dark .code-area .keyword { -fx-fill: #569cd6; }
+.theme-dark .code-area .type { -fx-fill: #4ec9b0; }
+.theme-dark .code-area .string { -fx-fill: #ce9178; }
+.theme-dark .code-area .comment { -fx-fill: #6a9955; }
+.theme-dark .code-area .annotation { -fx-fill: #dcdcaa; }
+.theme-dark .code-area .number { -fx-fill: #b5cea8; }
+.theme-dark .problem-error { -fx-text-fill: #ff8a80; }
+.theme-dark .problem-warning { -fx-text-fill: #e0b84a; }
+.theme-dark .prompt-venv { -fx-text-fill: #6abf69; }

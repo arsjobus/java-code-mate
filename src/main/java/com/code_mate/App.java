@@ -15,6 +15,7 @@ import javafx.collections.ListChangeListener;
 import javafx.geometry.Insets;
 import javafx.geometry.Orientation;
 import javafx.scene.Node;
+import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.input.KeyCode;
@@ -25,6 +26,7 @@ import javafx.scene.layout.*;
 import javafx.stage.DirectoryChooser;
 import javafx.stage.FileChooser;
 import javafx.stage.Stage;
+import javafx.stage.Window;
 import org.fxmisc.flowless.VirtualizedScrollPane;
 import org.fxmisc.richtext.CaretNode;
 import org.fxmisc.richtext.CodeArea;
@@ -42,6 +44,8 @@ import java.util.prefs.Preferences;
 
 public final class App extends Application {
     private static final int MAX_RECENT_PROJECTS = 8;
+    private static final String THEME_KEY = "theme";
+    private static final String DARK_STYLE_CLASS = "theme-dark";
     private static final Pattern TOKEN = Pattern.compile(
         "(?<comment>//[^\\n]*|/\\*[\\s\\S]*?\\*/)|" +
         "(?<string>\"(?:\\\\.|[^\"\\\\])*\"|'(?:\\\\.|[^'\\\\])*')|" +
@@ -67,6 +71,8 @@ public final class App extends Application {
     private final TabPane bottomTabs = new TabPane(outputTab, problemsTab, terminalTab);
     private final SplitPane editorSplit = new SplitPane(tabs);
     private File projectDirectory;
+    private Scene scene;
+    private boolean dark = "dark".equals(preferences.get(THEME_KEY, "light"));
 
     @Override public void start(Stage stage) {
         stage.setTitle("Code Mate");
@@ -103,9 +109,10 @@ public final class App extends Application {
         HBox statusBar = new HBox(status);
         statusBar.setPadding(new Insets(4, 8, 4, 8));
         root.setBottom(statusBar);
-        Scene scene = new Scene(root, 1200, 760);
+        scene = new Scene(root, 1200, 760);
         var css = getClass().getResource("/styles/editor.css");
         if (css != null) scene.getStylesheets().add(css.toExternalForm());
+        installTheme();
         stage.setScene(scene);
         stage.setOnCloseRequest(event -> { if (!confirmCloseDirtyTabs()) event.consume(); });
         stage.show();
@@ -143,7 +150,8 @@ public final class App extends Application {
         MenuItem showProblems = new MenuItem("Problems"); showProblems.setOnAction(e -> showBottom(problemsTab));
         MenuItem showTerminal = new MenuItem("Terminal"); showTerminal.setAccelerator(new KeyCodeCombination(KeyCode.BACK_QUOTE, KeyCodeCombination.CONTROL_DOWN)); showTerminal.setOnAction(e -> { showBottom(terminalTab); terminals.focusInput(); });
         MenuItem newTerminal = new MenuItem("New Terminal"); newTerminal.setAccelerator(new KeyCodeCombination(KeyCode.BACK_QUOTE, KeyCodeCombination.CONTROL_DOWN, KeyCodeCombination.SHIFT_DOWN)); newTerminal.setOnAction(e -> { showBottom(terminalTab); terminals.newTerminal(); });
-        view.getItems().addAll(focus, new SeparatorMenuItem(), fold, unfold, new SeparatorMenuItem(), bottomPanel, showOutput, showProblems, showTerminal, newTerminal);
+        CheckMenuItem darkMode = new CheckMenuItem("Dark Mode"); darkMode.setSelected(dark); darkMode.setOnAction(e -> setDarkMode(darkMode.isSelected()));
+        view.getItems().addAll(focus, new SeparatorMenuItem(), fold, unfold, new SeparatorMenuItem(), bottomPanel, showOutput, showProblems, showTerminal, newTerminal, new SeparatorMenuItem(), darkMode);
 
         Menu run = new Menu("Run");
         MenuItem build = new MenuItem("Build"); build.setAccelerator(new KeyCodeCombination(KeyCode.B, KeyCodeCombination.CONTROL_DOWN)); build.setOnAction(e -> build());
@@ -152,6 +160,38 @@ public final class App extends Application {
         MenuItem manage = new MenuItem("Processes..."); manage.setOnAction(e -> showProcesses());
         run.getItems().addAll(build, runCommand, new SeparatorMenuItem(), stopAll, manage);
         return new MenuBar(file, edit, view, run);
+    }
+
+    /** Light is the default look; dark adds the {@code theme-dark} style class (see editor.css) to the scene root. */
+    private void installTheme() {
+        // Dialogs open in their own scene, so they do not inherit this window's stylesheet or theme class.
+        Window.getWindows().addListener((ListChangeListener<Window>) change -> {
+            while (change.next()) if (change.wasAdded()) change.getAddedSubList().forEach(this::styleDialog);
+        });
+        applyTheme();
+    }
+
+    private void setDarkMode(boolean enabled) {
+        dark = enabled;
+        preferences.put(THEME_KEY, enabled ? "dark" : "light");
+        applyTheme();
+    }
+
+    private void applyTheme() {
+        setThemeClass(scene.getRoot());
+        Window.getWindows().forEach(this::styleDialog);
+    }
+
+    private void styleDialog(Window window) {
+        Scene dialogScene = window.getScene();
+        if (dialogScene == null || !(dialogScene.getRoot() instanceof DialogPane pane)) return;
+        for (String sheet : scene.getStylesheets()) if (!pane.getStylesheets().contains(sheet)) pane.getStylesheets().add(sheet);
+        setThemeClass(pane);
+    }
+
+    private void setThemeClass(Parent root) {
+        root.getStyleClass().remove(DARK_STYLE_CLASS);
+        if (dark) root.getStyleClass().add(DARK_STYLE_CLASS);
     }
 
     private Menu createRecentProjectsMenu() {

@@ -156,7 +156,8 @@ public final class TerminalPanel extends BorderPane {
         String venv = session.venvName().orElse(null);
         boolean busy = session.isBusy();
         prompt.setText(venv == null ? "$" : "(" + venv + ") $");
-        prompt.setStyle(MONO + (venv == null ? "" : " -fx-text-fill: #2e7d32;"));
+        prompt.getStyleClass().remove("prompt-venv");
+        if (venv != null) prompt.getStyleClass().add("prompt-venv");
         state.setText(busy ? "\u25CF Running: " + session.foreground() : "Idle" + (venv == null ? "" : "  \u2022  virtualenv: " + venv));
         interrupt.setDisable(!busy);
         title.set(baseName + (venv == null ? "" : " (" + venv + ")") + (busy ? " \u25CF" : ""));

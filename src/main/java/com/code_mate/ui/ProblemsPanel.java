@@ -20,7 +20,8 @@ public final class ProblemsPanel extends BorderPane {
             @Override protected void updateItem(Problem problem, boolean empty) {
                 super.updateItem(problem, empty);
                 setText(empty || problem == null ? null : problem.toString());
-                setStyle(empty || problem == null ? "" : problem.severity() == Problem.Severity.ERROR ? "-fx-text-fill: #b00020;" : "-fx-text-fill: #8a6d00;");
+                getStyleClass().removeAll("problem-error", "problem-warning");
+                if (!empty && problem != null) getStyleClass().add(problem.severity() == Problem.Severity.ERROR ? "problem-error" : "problem-warning");
             }
         });
         list.setOnMouseClicked(e -> {
