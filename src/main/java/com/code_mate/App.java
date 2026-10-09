@@ -8,7 +8,7 @@ import com.code_mate.build.ProcessManager;
 import com.code_mate.build.ShellCommand;
 import com.code_mate.ui.OutputPanel;
 import com.code_mate.ui.ProblemsPanel;
-import com.code_mate.ui.TerminalPanel;
+import com.code_mate.ui.TerminalsPanel;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.collections.ListChangeListener;
@@ -60,10 +60,10 @@ public final class App extends Application {
     private final ProcessManager processes = new ProcessManager();
     private final OutputPanel output = new OutputPanel();
     private final ProblemsPanel problems = new ProblemsPanel();
-    private final TerminalPanel terminal = new TerminalPanel(processes, () -> this.projectDirectory);
+    private final TerminalsPanel terminals = new TerminalsPanel(processes, () -> this.projectDirectory);
     private final Tab outputTab = new Tab("Output", output);
     private final Tab problemsTab = new Tab("Problems (0)", problems);
-    private final Tab terminalTab = new Tab("Terminal", terminal);
+    private final Tab terminalTab = new Tab("Terminal", terminals);
     private final TabPane bottomTabs = new TabPane(outputTab, problemsTab, terminalTab);
     private final SplitPane editorSplit = new SplitPane(tabs);
     private File projectDirectory;
@@ -141,8 +141,9 @@ public final class App extends Application {
         MenuItem bottomPanel = new MenuItem("Toggle Bottom Panel"); bottomPanel.setAccelerator(new KeyCodeCombination(KeyCode.J, KeyCodeCombination.CONTROL_DOWN)); bottomPanel.setOnAction(e -> toggleBottomPanel());
         MenuItem showOutput = new MenuItem("Output"); showOutput.setOnAction(e -> showBottom(outputTab));
         MenuItem showProblems = new MenuItem("Problems"); showProblems.setOnAction(e -> showBottom(problemsTab));
-        MenuItem showTerminal = new MenuItem("Terminal"); showTerminal.setAccelerator(new KeyCodeCombination(KeyCode.BACK_QUOTE, KeyCodeCombination.CONTROL_DOWN)); showTerminal.setOnAction(e -> { showBottom(terminalTab); terminal.focusInput(); });
-        view.getItems().addAll(focus, new SeparatorMenuItem(), fold, unfold, new SeparatorMenuItem(), bottomPanel, showOutput, showProblems, showTerminal);
+        MenuItem showTerminal = new MenuItem("Terminal"); showTerminal.setAccelerator(new KeyCodeCombination(KeyCode.BACK_QUOTE, KeyCodeCombination.CONTROL_DOWN)); showTerminal.setOnAction(e -> { showBottom(terminalTab); terminals.focusInput(); });
+        MenuItem newTerminal = new MenuItem("New Terminal"); newTerminal.setAccelerator(new KeyCodeCombination(KeyCode.BACK_QUOTE, KeyCodeCombination.CONTROL_DOWN, KeyCodeCombination.SHIFT_DOWN)); newTerminal.setOnAction(e -> { showBottom(terminalTab); terminals.newTerminal(); });
+        view.getItems().addAll(focus, new SeparatorMenuItem(), fold, unfold, new SeparatorMenuItem(), bottomPanel, showOutput, showProblems, showTerminal, newTerminal);
 
         Menu run = new Menu("Run");
         MenuItem build = new MenuItem("Build"); build.setAccelerator(new KeyCodeCombination(KeyCode.B, KeyCodeCombination.CONTROL_DOWN)); build.setOnAction(e -> build());

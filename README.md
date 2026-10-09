@@ -29,7 +29,20 @@ Open a project directory, then use the **Run** menu:
 
 Output appears in the **Output** panel. Compiler diagnostics (javac, Maven, gcc-style) are collected in
 **Problems**; double-click one to jump to the line. **Terminal** (Ctrl+`) is a persistent shell fed one line
-at a time. It has no PTY, so full-screen programs and job control are unsupported. Toggle the bottom panel with Ctrl+J.
+at a time. Toggle the bottom panel with Ctrl+J.
+
+Terminals:
+- **Tabs:** `+ New Terminal` or Ctrl+Shift+` opens another terminal; each tab has its own shell and environment.
+- **Long-running commands:** while a command such as `uvicorn api.main:app --reload` runs, the tab stays bound to it. The
+  tab title shows a dot, the header shows the command, and typed lines go to the program's stdin.
+- **Standard keys:** Ctrl+C interrupts the running command (SIGINT; the shell stays alive; copies instead when text is
+  selected), Ctrl+D exits an idle shell, Ctrl+L clears the transcript, Up/Down walk history. Closing a busy tab asks first.
+- **Python virtualenvs:** after `. .venv/bin/activate` the prompt shows `(.venv) $` and the tab title shows the venv;
+  `deactivate` removes both. To do this the terminal sends one read-only `printf` of `$VIRTUAL_ENV` to the shell after a
+  command finishes (never while a command is running) and hides its output.
+- **Limits:** there is no PTY, so full-screen programs (vim, top) and job control are unsupported. Python output is
+  unbuffered (`PYTHONUNBUFFERED=1`) so servers show logs immediately. On Windows, Ctrl+C terminates the command instead of
+  sending SIGINT, and venv detection is untested.
 
 Nothing runs unless you ask for it, commands are echoed before they run, and all child processes are stopped when the editor exits.
 

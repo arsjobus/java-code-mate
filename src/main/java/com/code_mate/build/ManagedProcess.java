@@ -28,6 +28,9 @@ public final class ManagedProcess {
     public boolean isAlive() { return process.isAlive(); }
     Process process() { return process; }
 
+    /** Direct child processes, e.g. the command a shell is currently running. */
+    public List<ProcessHandle> children() { return process.children().toList(); }
+
     /** Writes one line to the process's stdin (used by the terminal). */
     public synchronized void send(String line) throws IOException {
         OutputStream out = process.getOutputStream();

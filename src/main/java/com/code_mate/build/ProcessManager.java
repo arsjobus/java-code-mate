@@ -28,7 +28,13 @@ public final class ProcessManager {
     private final Map<Long, ManagedProcess> running = new ConcurrentHashMap<>();
 
     public ManagedProcess start(String name, List<String> command, File directory, Listener listener) throws IOException {
+        return start(name, command, directory, Map.of(), listener);
+    }
+
+    /** As above, with extra environment variables layered over the editor's own environment. */
+    public ManagedProcess start(String name, List<String> command, File directory, Map<String, String> environment, Listener listener) throws IOException {
         ProcessBuilder builder = new ProcessBuilder(command).redirectErrorStream(true);
+        builder.environment().putAll(environment);
         if (directory != null) builder.directory(directory);
         Process process = builder.start();
         ManagedProcess managed = new ManagedProcess(ids.incrementAndGet(), name, command, directory, process);
@@ -77,4 +83,24 @@ public final class ProcessManager {
     }
 
     public void stopAll() { running().forEach(this::stop); }
+
+    /**
+     * Sends the equivalent of Ctrl+C to whatever the given shell is running: SIGINT to its direct children,
+     * leaving the shell itself alive. Windows has no equivalent signal, so children are terminated instead.
+     * Returns how many children were signalled.
+     */
+    public int interrupt(ManagedProcess shell) {
+        int signalled = 0;
+        for (ProcessHandle child : shell.children()) {
+            if (ShellCommand.isWindows()) { if (child.destroy()) signalled++; continue; }
+            try {
+                Process kill = new ProcessBuilder("kill", "-INT", Long.toString(child.pid()))
+                    .redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.DISCARD).start();
+                if (kill.waitFor(2, TimeUnit.SECONDS) && kill.exitValue() == 0) signalled++;
+            } catch (IOException ignored) {
+                // No kill binary available; nothing more we can do.
+            } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+        }
+        return signalled;
+    }
 }

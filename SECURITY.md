@@ -14,7 +14,7 @@ The editor may eventually process:
 
 ## Rules
 
-- Do not execute commands without user direction.
+- Do not execute commands without user direction. The one exception is the terminal's read-only virtualenv probe (`printf` of `$VIRTUAL_ENV`), sent only to a shell the user opened, only while idle.
 - Show commands before destructive operations where practical.
 - Never silently upload project data.
 - Keep secrets out of logs.
