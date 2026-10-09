@@ -90,8 +90,13 @@ public final class ProcessManager {
      * Returns how many children were signalled.
      */
     public int interrupt(ManagedProcess shell) {
+        return interrupt(shell.children());
+    }
+
+    /** As above, but only signals the given processes (e.g. a shell's foreground children, sparing its background jobs). */
+    public int interrupt(List<ProcessHandle> targets) {
         int signalled = 0;
-        for (ProcessHandle child : shell.children()) {
+        for (ProcessHandle child : targets) {
             if (ShellCommand.isWindows()) { if (child.destroy()) signalled++; continue; }
             try {
                 Process kill = new ProcessBuilder("kill", "-INT", Long.toString(child.pid()))

@@ -50,6 +50,7 @@ public final class TerminalPanel extends BorderPane {
     private final Button interrupt = new Button("Interrupt (Ctrl+C)");
     private final StringProperty title = new SimpleStringProperty();
     private final List<String> history = new ArrayList<>();
+    private int lastBackground;
     private final Timeline ticker = new Timeline(new KeyFrame(Duration.millis(400), e -> tick()));
     private int historyIndex;
 
@@ -113,7 +114,11 @@ public final class TerminalPanel extends BorderPane {
         session.close();
     }
 
-    private void tick() { session.tick(); }
+    private void tick() {
+        session.tick();
+        // A background job can exit without any other state change, so the label is refreshed when the count moves.
+        if (session.backgroundJobs() != lastBackground) refresh();
+    }
 
     private void handleControlKeys(KeyEvent e) {
         if (!e.isControlDown() || e.isAltDown() || e.isMetaDown() || e.isShiftDown()) return;
@@ -158,7 +163,10 @@ public final class TerminalPanel extends BorderPane {
         prompt.setText(venv == null ? "$" : "(" + venv + ") $");
         prompt.getStyleClass().remove("prompt-venv");
         if (venv != null) prompt.getStyleClass().add("prompt-venv");
-        state.setText(busy ? "\u25CF Running: " + session.foreground() : "Idle" + (venv == null ? "" : "  \u2022  virtualenv: " + venv));
+        int background = session.backgroundJobs();
+        lastBackground = background;
+        String jobs = background == 0 ? "" : "  \u2022  " + background + " background job" + (background == 1 ? "" : "s");
+        state.setText(busy ? "\u25CF Running: " + session.foreground() + jobs : "Idle" + jobs + (venv == null ? "" : "  \u2022  virtualenv: " + venv));
         interrupt.setDisable(!busy);
         title.set(baseName + (venv == null ? "" : " (" + venv + ")") + (busy ? " \u25CF" : ""));
     }

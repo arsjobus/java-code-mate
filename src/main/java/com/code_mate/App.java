@@ -474,10 +474,11 @@ public final class App extends Application {
         showBottom(outputTab);
         output.append("$ " + commandLine + "    (in " + projectDirectory.getAbsolutePath() + ")");
         if (unsaved > 0) output.append("Note: " + unsaved + " unsaved file(s) are not included; the command uses files on disk.");
+        ProblemParser parser = new ProblemParser(); // stateful (multi-line diagnostics); only touched on the FX thread
         try {
             processes.start(name, ShellCommand.wrap(commandLine), projectDirectory, new ProcessManager.Listener() {
                 @Override public void onLine(ManagedProcess p, String line) {
-                    Platform.runLater(() -> { output.append(line); ProblemParser.parse(line).ifPresent(problems::add); });
+                    Platform.runLater(() -> { output.append(line); parser.accept(line).ifPresent(problems::add); });
                 }
                 @Override public void onExit(ManagedProcess p, int code) {
                     Platform.runLater(() -> { output.append("[" + name + " exited with code " + code + "]"); status.setText(name + " exited with code " + code); });
