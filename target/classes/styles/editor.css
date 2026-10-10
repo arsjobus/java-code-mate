@@ -37,3 +37,19 @@
 .theme-dark .problem-error { -fx-text-fill: #ff8a80; }
 .theme-dark .problem-warning { -fx-text-fill: #e0b84a; }
 .theme-dark .prompt-venv { -fx-text-fill: #6abf69; }
+
+/* v0.5 language intelligence: diagnostics underlines and popups. */
+.code-area .diag-error { -rtfx-underline-color: #e51400; -rtfx-underline-width: 1.5; -rtfx-underline-dash-array: 2 2; }
+.code-area .diag-warning { -rtfx-underline-color: #bf8803; -rtfx-underline-width: 1.5; -rtfx-underline-dash-array: 2 2; }
+.popup-pane { -fx-background-color: #f3f3f3; -fx-border-color: #c8c8c8; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.25), 8, 0, 0, 2); }
+.popup-pane .list-cell { -fx-background-color: transparent; -fx-text-fill: #1e1e1e; -fx-font-family: "Monospaced"; }
+.popup-pane .list-cell:filled:selected { -fx-background-color: #cfe3ff; }
+.popup-pane .popup-text { -fx-text-fill: #1e1e1e; -fx-font-family: "Monospaced"; -fx-padding: 6; }
+.popup-pane.scroll-pane > .viewport { -fx-background-color: #f3f3f3; }
+.theme-dark.popup-pane { -fx-background-color: #252526; -fx-border-color: #454545; }
+.theme-dark.popup-pane .list-cell { -fx-text-fill: #d4d4d4; }
+.theme-dark.popup-pane .list-cell:filled:selected { -fx-background-color: #094771; }
+.theme-dark.popup-pane .popup-text { -fx-text-fill: #d4d4d4; }
+.theme-dark.popup-pane.scroll-pane > .viewport { -fx-background-color: #252526; }
+.theme-dark .code-area .diag-error { -rtfx-underline-color: #f48771; }
+.theme-dark .code-area .diag-warning { -rtfx-underline-color: #cca700; }

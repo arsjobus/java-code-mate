@@ -46,13 +46,13 @@
 
 ## v0.5 — Language intelligence
 
-- [ ] LSP architecture
-- [ ] Diagnostics
-- [ ] Completion
-- [ ] Hover
-- [ ] Go to definition
-- [ ] Find references
-- [ ] Rename
+- [x] LSP architecture
+- [x] Diagnostics
+- [x] Completion
+- [x] Hover
+- [x] Go to definition
+- [x] Find references
+- [x] Rename
 
 ## v0.6 — Git
 

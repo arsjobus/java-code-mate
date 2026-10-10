@@ -66,3 +66,7 @@ Every dependency should answer:
 4. Does it introduce network, telemetry, account, or lock-in concerns?
 
 Prefer fewer dependencies.
+
+## Language intelligence (v0.5)
+
+`com.code_mate.language` is JavaFX-free. `LanguageService` tracks open documents and routes them to user-started servers; `LanguageServerSession` owns one server process and the protocol handshake; `JsonRpc` and `Json` are a small stdio JSON-RPC client written against the JDK, because an LSP client needs very little JSON and the dependency rule asks for a reason to add one. `App` only translates between editor state and this package.

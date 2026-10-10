@@ -32,6 +32,10 @@ Before sending source code externally, the user should know:
 - What scope is being sent
 - What action will occur
 
+## Language servers
+
+Code Mate itself sends nothing over the network for language features. It talks to a language server over that process's stdin/stdout, and only after the user has chosen to start one. What the server does beyond that (for example downloading indexes) is up to the server the user selected.
+
 ## Diagnostics
 
 Crash reports and diagnostic collection should be opt-in.

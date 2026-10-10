@@ -15,6 +15,8 @@ The editor may eventually process:
 ## Rules
 
 - Do not execute commands without user direction. The one exception is the terminal's read-only virtualenv probe (`printf` of `$VIRTUAL_ENV`), sent only to a shell the user opened, only while idle.
+- Language servers are ordinary child processes: they start only when the user confirms a command in Language > Start Language Server..., and stop on request or when the editor exits. A server can read project files and may use the network on its own account.
+- Edits proposed by a language server (such as a rename) are shown first and applied only to unsaved editor buffers after the user approves. The client advertises no `workspace/applyEdit` support.
 - Show commands before destructive operations where practical.
 - Never silently upload project data.
 - Keep secrets out of logs.

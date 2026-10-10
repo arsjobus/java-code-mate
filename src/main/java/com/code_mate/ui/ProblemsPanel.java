@@ -7,11 +7,23 @@ import javafx.scene.control.ListView;
 import javafx.scene.input.MouseButton;
 import javafx.scene.layout.BorderPane;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.function.Consumer;
 
-/** Lists diagnostics parsed from build output. Double-click opens the location. Call from the FX thread only. */
+/**
+ * Lists diagnostics from build output and from language servers. Each source (the build, or one file's language
+ * diagnostics) owns its own entries, so a new build does not wipe language diagnostics and vice versa.
+ * Double-click opens the location. Call from the FX thread only.
+ */
 public final class ProblemsPanel extends BorderPane {
+    /** The source used by {@link #add} and {@link #clear}. */
+    public static final String BUILD = "build";
+
     private final ListView<Problem> list = new ListView<>();
+    private final Map<String, List<Problem>> sources = new LinkedHashMap<>();
     private Consumer<Problem> onOpen = p -> {};
 
     public ProblemsPanel() {
@@ -33,10 +45,29 @@ public final class ProblemsPanel extends BorderPane {
 
     public void setOnOpen(Consumer<Problem> handler) { onOpen = handler; }
 
-    /** Adds a problem unless an identical one is already listed (build tools often repeat errors in their summary). */
-    public void add(Problem problem) { if (!list.getItems().contains(problem)) list.getItems().add(problem); }
+    /** Adds a build problem unless an identical one is already listed (build tools often repeat errors in their summary). */
+    public void add(Problem problem) {
+        List<Problem> build = sources.computeIfAbsent(BUILD, k -> new ArrayList<>());
+        if (build.contains(problem)) return;
+        build.add(problem);
+        refresh();
+    }
 
-    public void clear() { list.getItems().clear(); }
+    /** Clears build problems only. */
+    public void clear() { replace(BUILD, List.of()); }
+
+    /** Replaces everything one source reported; an empty list removes the source. */
+    public void replace(String source, List<Problem> problems) {
+        if (problems.isEmpty()) { if (sources.remove(source) == null) return; }
+        else sources.put(source, new ArrayList<>(problems));
+        refresh();
+    }
+
+    private void refresh() {
+        List<Problem> all = new ArrayList<>();
+        sources.values().forEach(all::addAll);
+        list.getItems().setAll(all);
+    }
 
     public ObservableList<Problem> items() { return list.getItems(); }
 }
