@@ -31,6 +31,14 @@ public final class Lsp {
     /** Edits grouped by document. {@code unsupported} is true when the server also asked for file create/rename/delete. */
     public record WorkspaceEdit(Map<URI, List<TextEdit>> changes, boolean unsupported) {}
 
+    /** One entry of a document outline, flattened from the server's tree. {@code depth} is the nesting level; {@code range} is the name's location. */
+    public record Symbol(String name, String detail, int kind, Range range, int depth) {
+        private static final String[] KINDS = {"", "file", "module", "namespace", "package", "class", "method", "property", "field", "constructor", "enum",
+            "interface", "function", "variable", "constant", "string", "number", "boolean", "array", "object", "key", "null", "enum member", "struct",
+            "event", "operator", "type parameter"};
+        public String kindName() { return kind > 0 && kind < KINDS.length ? KINDS[kind] : "symbol"; }
+    }
+
     public record Diagnostic(Range range, int severity, String message, String source) {
         public static final int ERROR = 1, WARNING = 2, INFORMATION = 3, HINT = 4;
     }
@@ -155,5 +163,75 @@ public final class Lsp {
     static String flattenSnippet(String snippet) {
         String s = snippet.replaceAll("\\$\\{\\d+:([^}]*)}", "$1").replaceAll("\\$\\{\\d+\\|([^,}|]*)[^}]*}", "$1").replaceAll("\\$\\{?\\d+}?", "");
         return s.replace("\\$", "$").replace("\\}", "}");
+    }
+
+    /**
+     * Flattens signature help to readable text: the active signature, a line naming the active parameter, and any documentation.
+     * Returns an empty string when the server has no signature for the position.
+     */
+    public static String signatureText(Object result) {
+        List<Object> signatures = Json.asArray(Json.get(result, "signatures"));
+        if (signatures == null || signatures.isEmpty()) return "";
+        int index = Math.max(0, Math.min(Json.integer(result, "activeSignature", 0), signatures.size() - 1));
+        Object signature = signatures.get(index);
+        String label = Json.string(signature, "label");
+        if (label == null) return "";
+        StringBuilder sb = new StringBuilder(label);
+        List<Object> parameters = Json.asArray(Json.get(signature, "parameters"));
+        int active = Json.get(signature, "activeParameter") instanceof Number ? Json.integer(signature, "activeParameter", 0) : Json.integer(result, "activeParameter", 0);
+        if (parameters != null && active >= 0 && active < parameters.size()) {
+            String name = parameterLabel(Json.get(parameters.get(active), "label"), label);
+            if (!name.isBlank()) sb.append("\n\nParameter: ").append(name);
+            String doc = stripMarkdown(markedText(Json.get(parameters.get(active), "documentation"))).trim();
+            if (!doc.isEmpty()) sb.append("\n").append(doc);
+        }
+        String doc = stripMarkdown(markedText(Json.get(signature, "documentation"))).trim();
+        if (!doc.isEmpty()) sb.append("\n\n").append(doc);
+        if (signatures.size() > 1) sb.append("\n\n(overload ").append(index + 1).append(" of ").append(signatures.size()).append(")");
+        return sb.toString();
+    }
+
+    /** A parameter label is either its text or a [start, end) offset pair into the signature label. */
+    private static String parameterLabel(Object label, String signatureLabel) {
+        if (label instanceof String s) return s;
+        List<Object> span = Json.asArray(label);
+        if (span != null && span.size() == 2 && span.get(0) instanceof Number a && span.get(1) instanceof Number b) {
+            int start = a.intValue(), end = b.intValue();
+            if (start >= 0 && start <= end && end <= signatureLabel.length()) return signatureLabel.substring(start, end);
+        }
+        return "";
+    }
+
+    /** Parses a document-symbol reply: either a DocumentSymbol tree or a flat SymbolInformation list. Depth-first order. */
+    public static List<Symbol> symbols(Object result) {
+        List<Symbol> out = new ArrayList<>();
+        List<Object> items = Json.asArray(result);
+        if (items != null) addSymbols(out, items, 0);
+        return out;
+    }
+
+    private static void addSymbols(List<Symbol> out, List<Object> items, int depth) {
+        for (Object item : items) {
+            String name = Json.string(item, "name");
+            if (name == null) continue;
+            // DocumentSymbol has selectionRange (the name itself); SymbolInformation nests the range in location.
+            Range range = Range.from(Json.get(item, "selectionRange") != null ? Json.get(item, "selectionRange")
+                : Json.get(item, "range") != null ? Json.get(item, "range") : Json.get(Json.get(item, "location"), "range"));
+            if (range != null) out.add(new Symbol(name, Json.string(item, "detail"), Json.integer(item, "kind", 0), range, depth));
+            List<Object> children = Json.asArray(Json.get(item, "children"));
+            if (children != null && depth < 32) addSymbols(out, children, depth + 1);
+        }
+    }
+
+    /** Parses the plain TextEdit list returned by formatting requests. Null (nothing to change) becomes an empty list. */
+    public static List<TextEdit> textEdits(Object result) {
+        List<TextEdit> out = new ArrayList<>();
+        List<Object> items = Json.asArray(result);
+        if (items == null) return out;
+        for (Object edit : items) {
+            Range range = Range.from(Json.get(edit, "range")); String text = Json.string(edit, "newText");
+            if (range != null && text != null) out.add(new TextEdit(range, text));
+        }
+        return out;
     }
 }

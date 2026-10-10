@@ -170,6 +170,18 @@ public final class LanguageService {
         return withPosition(file, offset, (s, uri, pos) -> s.rename(uri, pos, newName));
     }
 
+    public CompletableFuture<String> signatureHelp(File file, int offset) {
+        return withPosition(file, offset, (s, uri, pos) -> s.signatureHelp(uri, pos));
+    }
+
+    public CompletableFuture<List<Lsp.Symbol>> documentSymbols(File file) {
+        return withPosition(file, 0, (s, uri, pos) -> s.documentSymbols(uri));
+    }
+
+    public CompletableFuture<List<Lsp.TextEdit>> formatting(File file, int tabSize, boolean insertSpaces) {
+        return withPosition(file, 0, (s, uri, pos) -> s.formatting(uri, tabSize, insertSpaces));
+    }
+
     private interface Query<T> { CompletableFuture<T> run(LanguageServerSession session, URI uri, Lsp.Position position); }
 
     private <T> CompletableFuture<T> withPosition(File file, int offset, Query<T> query) {

@@ -186,7 +186,10 @@ public final class App extends Application {
         MenuItem definition = new MenuItem("Go to Definition"); definition.setAccelerator(new KeyCodeCombination(KeyCode.F12)); definition.setOnAction(e -> goToDefinition());
         MenuItem findReferences = new MenuItem("Find References"); findReferences.setAccelerator(new KeyCodeCombination(KeyCode.F12, KeyCombination.SHIFT_DOWN)); findReferences.setOnAction(e -> findReferences());
         MenuItem rename = new MenuItem("Rename Symbol..."); rename.setAccelerator(new KeyCodeCombination(KeyCode.F2)); rename.setOnAction(e -> renameSymbol());
-        languageMenu.getItems().addAll(startServer, stopServer, new SeparatorMenuItem(), complete, hover, definition, findReferences, rename);
+        MenuItem signature = new MenuItem("Signature Help"); signature.setAccelerator(new KeyCodeCombination(KeyCode.SPACE, KeyCombination.CONTROL_DOWN, KeyCombination.SHIFT_DOWN)); signature.setOnAction(e -> signatureHelp());
+        MenuItem symbols = new MenuItem("Document Symbols"); symbols.setAccelerator(new KeyCodeCombination(KeyCode.O, KeyCombination.CONTROL_DOWN, KeyCombination.SHIFT_DOWN)); symbols.setOnAction(e -> documentSymbols());
+        MenuItem format = new MenuItem("Format Document"); format.setAccelerator(new KeyCodeCombination(KeyCode.F, KeyCombination.CONTROL_DOWN, KeyCombination.SHIFT_DOWN)); format.setOnAction(e -> formatDocument());
+        languageMenu.getItems().addAll(startServer, stopServer, new SeparatorMenuItem(), complete, hover, signature, definition, findReferences, symbols, new SeparatorMenuItem(), rename, format);
 
         Menu run = new Menu("Run");
         MenuItem build = new MenuItem("Build"); build.setAccelerator(new KeyCodeCombination(KeyCode.B, KeyCodeCombination.CONTROL_DOWN)); build.setOnAction(e -> build());
@@ -756,6 +759,55 @@ public final class App extends Application {
             if (text.isBlank()) { status.setText("No hover information"); return; }
             hoverPopup.show(editor, text, this::popupStyler);
         })));
+    }
+
+    private void signatureHelp() {
+        withLanguageEditor((editor, file) -> {
+            int requestCaret = editor.getCaretPosition();
+            language.signatureHelp(file, requestCaret).whenComplete((text, err) -> Platform.runLater(() -> {
+                if (err != null) { languageError(err); return; }
+                if (text.isBlank()) { status.setText("No signature help here"); return; }
+                hoverPopup.show(editor, text, this::popupStyler);
+            }));
+        });
+    }
+
+    /** Lists the file's outline in the References panel; double-click jumps to a symbol. Read-only. */
+    private void documentSymbols() {
+        withLanguageEditor((editor, file) -> language.documentSymbols(file).whenComplete((symbols, err) -> {
+            Platform.runLater(() -> {
+                if (err != null) { languageError(err); return; }
+                List<ReferencesPanel.Reference> entries = new ArrayList<>();
+                for (Lsp.Symbol symbol : symbols) {
+                    int line = Math.max(0, Math.min(symbol.range().start().line(), editor.getParagraphs().size() - 1));
+                    String label = "  ".repeat(symbol.depth()) + symbol.kindName() + " " + symbol.name() + (symbol.detail() == null || symbol.detail().isBlank() ? "" : "  " + symbol.detail());
+                    entries.add(new ReferencesPanel.Reference(file, line + 1, symbol.range().start().character() + 1, label));
+                }
+                references.show("Symbols in " + file.getName() + " (" + entries.size() + ")", entries);
+                showBottom(referencesTab);
+                status.setText(entries.isEmpty() ? "No symbols found" : entries.size() + " symbol(s)");
+            });
+        }));
+    }
+
+    /**
+     * Asks the server for formatting edits and applies them to the editor. Nothing is written to disk, and the
+     * result is one undoable step per edit. If the text changed while the server was working, the result is discarded.
+     */
+    private void formatDocument() {
+        withLanguageEditor((editor, file) -> {
+            String snapshot = editor.getText();
+            language.formatting(file, 4, true).whenComplete((edits, err) -> Platform.runLater(() -> {
+                if (err != null) { languageError(err); return; }
+                if (edits.isEmpty()) { status.setText("Nothing to format"); return; }
+                if (!snapshot.equals(editor.getText())) { status.setText("The file changed while formatting; nothing was applied"); return; }
+                List<int[]> spans = new ArrayList<>(); // {start, end, edit index}
+                for (int i = 0; i < edits.size(); i++) spans.add(new int[] {offsetOf(editor, edits.get(i).range().start()), offsetOf(editor, edits.get(i).range().end()), i});
+                spans.sort((a, b) -> Integer.compare(b[0], a[0])); // bottom to top so earlier offsets stay valid
+                for (int[] span : spans) replaceMinimal(editor, span[0], span[1], edits.get(span[2]).newText());
+                status.setText("Formatted " + file.getName() + " (" + edits.size() + " edit(s), unsaved)");
+            }));
+        });
     }
 
     private void goToDefinition() {

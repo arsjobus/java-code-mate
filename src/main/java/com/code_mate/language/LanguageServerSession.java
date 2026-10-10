@@ -93,6 +93,10 @@ public final class LanguageServerSession {
             "definition", Json.obj("linkSupport", true),
             "references", Json.obj(),
             "rename", Json.obj("prepareSupport", false),
+            "signatureHelp", Json.obj("signatureInformation", Json.obj("documentationFormat", List.of("plaintext", "markdown"),
+                "parameterInformation", Json.obj("labelOffsetSupport", true), "activeParameterSupport", true)),
+            "documentSymbol", Json.obj("hierarchicalDocumentSymbolSupport", true),
+            "formatting", Json.obj(),
             "publishDiagnostics", Json.obj());
         // applyEdit stays off: edits proposed by a server are never applied without the user seeing them first.
         Map<String, Object> workspace = Json.obj("workspaceFolders", true, "configuration", false, "applyEdit", false);
@@ -173,6 +177,21 @@ public final class LanguageServerSession {
         Map<String, Object> params = Lsp.positionParams(uri, position);
         params.put("newName", newName);
         return query("renameProvider", "rename", "textDocument/rename", params, Lsp::workspaceEdit);
+    }
+
+    /** Signature text for the call at the position, or an empty string when there is none. */
+    public CompletableFuture<String> signatureHelp(URI uri, Lsp.Position position) {
+        return query("signatureHelpProvider", "signature help", "textDocument/signatureHelp", Lsp.positionParams(uri, position), Lsp::signatureText);
+    }
+
+    public CompletableFuture<List<Lsp.Symbol>> documentSymbols(URI uri) {
+        return query("documentSymbolProvider", "document symbols", "textDocument/documentSymbol", Json.obj("textDocument", Lsp.textDocument(uri)), Lsp::symbols);
+    }
+
+    /** Edits that format the whole document. They are proposals: the caller decides whether to apply them. */
+    public CompletableFuture<List<Lsp.TextEdit>> formatting(URI uri, int tabSize, boolean insertSpaces) {
+        Map<String, Object> params = Json.obj("textDocument", Lsp.textDocument(uri), "options", Json.obj("tabSize", tabSize, "insertSpaces", insertSpaces));
+        return query("documentFormattingProvider", "formatting", "textDocument/formatting", params, Lsp::textEdits);
     }
 
     private <T> CompletableFuture<T> query(String capability, String feature, String method, Object params, Function<Object, T> convert) {
