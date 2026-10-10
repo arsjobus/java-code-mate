@@ -1,0 +1,54 @@
+package com.code_mate.settings;
+
+/** Starter contents for settings files created on request. Everything is commented out, so a fresh file changes nothing. */
+public final class SettingsTemplates {
+    private SettingsTemplates() {}
+
+    public static String user(Keybindings keys) {
+        return """
+            # Code Mate user settings.
+            # Format: one key=value per line, UTF-8. Lines starting with # are comments; values are taken as written.
+            # Remove the leading # from a line to enable it. Saving this file in the editor applies it immediately.
+            # Project settings (<project>/.code-mate/settings.conf) override the editor.* values below.
+
+            # Theme: light, dark, high-contrast, or the name of a .css file in the themes folder next to this file.
+            #theme=light
+
+            # Editor
+            #editor.fontFamily=Monospaced
+            #editor.fontSize=14
+            #editor.tabSize=4
+            #editor.insertSpaces=true
+            #editor.wordWrap=false
+            #editor.lineNumbers=true
+            #editor.autoIndent=true
+
+            # Keybindings: key.<action id>=<shortcut>. Modifiers: Ctrl, Shift, Alt, Meta, Shortcut (Cmd on macOS).
+            # Use "none" to remove a shortcut. Unlisted actions keep their defaults.
+            """ + keys.template();
+    }
+
+    public static String project() {
+        return """
+            # Code Mate project settings. Same format as the user settings file.
+            # These values override the user's for this project only. Commit this file to share them,
+            # or ignore the .code-mate folder. Remove the leading # from a line to enable it.
+
+            #editor.tabSize=2
+            #editor.insertSpaces=true
+            #editor.wordWrap=false
+            #editor.autoIndent=true
+
+            # Commands. run.command is only pre-filled into the Run Command dialog; build.command replaces the
+            # detected build command for Run > Build. The command is echoed in the Output panel when it runs.
+            #run.command=
+            #build.command=
+
+            # Names (comma separated) hidden from the project tree and Go to File.
+            #tree.exclude=.git,target
+
+            # Pre-filled into the Start Language Server dialog, one line per language id (java, python, ...).
+            #language.server.java=
+            """;
+    }
+}

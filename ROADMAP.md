@@ -76,11 +76,11 @@
 
 ## v0.8 — Customization
 
-- [ ] Themes
-- [ ] Keybindings
-- [ ] Settings
-- [ ] Editor preferences
-- [ ] Project settings
+- [x] Themes
+- [x] Keybindings
+- [x] Settings
+- [x] Editor preferences
+- [x] Project settings
 
 ## v0.9 — Hardening
 

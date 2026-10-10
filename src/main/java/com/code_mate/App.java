@@ -9,11 +9,19 @@ import com.code_mate.build.ShellCommand;
 import com.code_mate.language.Languages;
 import com.code_mate.language.LanguageService;
 import com.code_mate.language.Lsp;
+import com.code_mate.settings.EditorPreferences;
+import com.code_mate.settings.Keybindings;
+import com.code_mate.settings.Settings;
+import com.code_mate.settings.SettingsTemplates;
+import com.code_mate.settings.Themes;
+import com.code_mate.settings.Themes.Theme;
 import com.code_mate.ui.CompletionPopup;
 import com.code_mate.ui.HoverPopup;
 import com.code_mate.ui.OutputPanel;
 import com.code_mate.ui.ProblemsPanel;
 import com.code_mate.ui.ReferencesPanel;
+import com.code_mate.ui.SettingsDialog;
+import com.code_mate.ui.Shortcuts;
 import com.code_mate.ui.TerminalsPanel;
 import javafx.application.Application;
 import javafx.application.Platform;
@@ -47,6 +55,7 @@ import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.function.Consumer;
 import java.util.*;
 import java.util.concurrent.CompletionException;
 import java.util.regex.Matcher;
@@ -56,7 +65,7 @@ import java.util.prefs.Preferences;
 public final class App extends Application {
     private static final int MAX_RECENT_PROJECTS = 8;
     private static final String THEME_KEY = "theme";
-    private static final String DARK_STYLE_CLASS = "theme-dark";
+    private static final String DEFAULT_TREE_EXCLUDES = ".git,target";
     private static final Pattern TOKEN = Pattern.compile(
         "(?<comment>//[^\\n]*|/\\*[\\s\\S]*?\\*/)|" +
         "(?<string>\"(?:\\\\.|[^\"\\\\])*\"|'(?:\\\\.|[^'\\\\])*')|" +
@@ -90,7 +99,19 @@ public final class App extends Application {
     private final SplitPane editorSplit = new SplitPane(tabs);
     private File projectDirectory;
     private Scene scene;
-    private boolean dark = "dark".equals(preferences.get(THEME_KEY, "light"));
+    // v0.8 customization: plain-file settings (see CUSTOMIZATION.md). The java.util.prefs store still holds
+    // recent projects, the last-used commands and, as a fallback for existing installs, the old theme choice.
+    private final Settings settings = new Settings(Settings.defaultUserDirectory().resolve(Settings.FILE_NAME));
+    private final Keybindings keys = new Keybindings(settings);
+    private final Map<String, MenuItem> menuItems = new LinkedHashMap<>();
+    private final List<String> keyProblems = new ArrayList<>();
+    private final Set<String> themeSheets = new HashSet<>();
+    private final Menu themeMenu = new Menu("Theme");
+    private List<Theme> themes = Themes.builtIn();
+    private Theme theme = themes.get(0);
+    private EditorPreferences editorPrefs = EditorPreferences.from(settings);
+    private Set<String> treeExcludes = parseNames(settings.get("tree.exclude", DEFAULT_TREE_EXCLUDES));
+    private int zoom; // temporary font-size offset for this session; never saved
 
     @Override public void start(Stage stage) {
         stage.setTitle("Code Mate");
@@ -137,85 +158,143 @@ public final class App extends Application {
         var css = getClass().getResource("/styles/editor.css");
         if (css != null) scene.getStylesheets().add(css.toExternalForm());
         installTheme();
+        applyKeybindings();
         stage.setScene(scene);
         stage.setOnCloseRequest(event -> { if (!confirmCloseDirtyTabs()) event.consume(); });
         stage.show();
+        reportSettingsProblems(false);
+    }
+
+    /** Creates a menu item whose shortcut can be rebound: its id and default are registered with {@link #keys}. */
+    private MenuItem bound(String menu, String text, String id, String defaultBinding, Runnable action) {
+        MenuItem item = new MenuItem(text);
+        item.setOnAction(e -> action.run());
+        keys.register(id, menu + " > " + text.replace("...", ""), defaultBinding);
+        menuItems.put(id, item);
+        item.setAccelerator(Shortcuts.parse(keys.binding(id)));
+        return item;
     }
 
     private MenuBar createMenuBar(Stage stage) {
         Menu file = new Menu("File");
-        MenuItem newFile = new MenuItem("New"); newFile.setOnAction(e -> newDocument());
-        MenuItem openFile = new MenuItem("Open File..."); openFile.setOnAction(e -> chooseAndOpenFile(stage));
-        MenuItem openDirectory = new MenuItem("Open Directory..."); openDirectory.setOnAction(e -> chooseProjectDirectory(stage));
-        MenuItem save = new MenuItem("Save"); save.setOnAction(e -> saveCurrent(false));
-        MenuItem saveAs = new MenuItem("Save As..."); saveAs.setOnAction(e -> saveCurrent(true));
-        MenuItem close = new MenuItem("Close"); close.setOnAction(e -> closeCurrentTab());
-        MenuItem exit = new MenuItem("Exit"); exit.setOnAction(e -> stage.close());
-        file.getItems().addAll(newFile, openFile, openDirectory, createRecentProjectsMenu(), new SeparatorMenuItem(), save, saveAs, close, new SeparatorMenuItem(), exit);
+        file.getItems().addAll(
+            bound("File", "New", "file.new", "", this::newDocument),
+            bound("File", "Open File...", "file.openFile", "", () -> chooseAndOpenFile(stage)),
+            bound("File", "Open Directory...", "file.openDirectory", "", () -> chooseProjectDirectory(stage)),
+            createRecentProjectsMenu(), new SeparatorMenuItem(),
+            bound("File", "Save", "file.save", "", () -> saveCurrent(false)),
+            bound("File", "Save As...", "file.saveAs", "", () -> saveCurrent(true)),
+            bound("File", "Close", "file.close", "", this::closeCurrentTab), new SeparatorMenuItem(),
+            bound("File", "Exit", "file.exit", "", stage::close));
 
         Menu edit = new Menu("Edit");
-        MenuItem undo = new MenuItem("Undo"); undo.setOnAction(e -> currentEditor().ifPresent(CodeArea::undo));
-        MenuItem redo = new MenuItem("Redo"); redo.setOnAction(e -> currentEditor().ifPresent(CodeArea::redo));
-        MenuItem search = new MenuItem("Search"); search.setAccelerator(new KeyCodeCombination(KeyCode.F, KeyCodeCombination.CONTROL_DOWN)); search.setOnAction(e -> search());
-        MenuItem replace = new MenuItem("Replace"); replace.setAccelerator(new KeyCodeCombination(KeyCode.H, KeyCodeCombination.CONTROL_DOWN)); replace.setOnAction(e -> replace());
-        MenuItem line = new MenuItem("Go to Line"); line.setAccelerator(new KeyCodeCombination(KeyCode.L, KeyCodeCombination.CONTROL_DOWN)); line.setOnAction(e -> goToLine());
-        MenuItem fileItem = new MenuItem("Go to File"); fileItem.setAccelerator(new KeyCodeCombination(KeyCode.P, KeyCodeCombination.CONTROL_DOWN)); fileItem.setOnAction(e -> goToFile());
-        MenuItem bracket = new MenuItem("Match Bracket"); bracket.setAccelerator(new KeyCodeCombination(KeyCode.M, KeyCodeCombination.CONTROL_DOWN)); bracket.setOnAction(e -> matchBracket());
-        MenuItem cursor = new MenuItem("Add Cursor"); cursor.setAccelerator(new KeyCodeCombination(KeyCode.D, KeyCodeCombination.CONTROL_DOWN)); cursor.setOnAction(e -> addCursor());
-        edit.getItems().addAll(undo, redo, new SeparatorMenuItem(), search, replace, line, fileItem, bracket, cursor);
+        edit.getItems().addAll(
+            bound("Edit", "Undo", "edit.undo", "", () -> currentEditor().ifPresent(CodeArea::undo)),
+            bound("Edit", "Redo", "edit.redo", "", () -> currentEditor().ifPresent(CodeArea::redo)), new SeparatorMenuItem(),
+            bound("Edit", "Search", "edit.search", "Ctrl+F", this::search),
+            bound("Edit", "Replace", "edit.replace", "Ctrl+H", this::replace),
+            bound("Edit", "Go to Line", "edit.goToLine", "Ctrl+L", this::goToLine),
+            bound("Edit", "Go to File", "edit.goToFile", "Ctrl+P", this::goToFile),
+            bound("Edit", "Match Bracket", "edit.matchBracket", "Ctrl+M", this::matchBracket),
+            bound("Edit", "Add Cursor", "edit.addCursor", "Ctrl+D", this::addCursor));
 
         Menu view = new Menu("View");
-        MenuItem focus = new MenuItem("Focus Mode");
-        focus.setOnAction(e -> { Node node = projectTree.getParent(); if (node != null) { boolean visible = node.isVisible(); node.setVisible(!visible); node.setManaged(!visible); } });
-        MenuItem fold = new MenuItem("Fold Selected"); fold.setOnAction(e -> currentEditor().ifPresent(CodeArea::foldSelectedParagraphs));
-        MenuItem unfold = new MenuItem("Unfold Current"); unfold.setOnAction(e -> currentEditor().ifPresent(a -> a.unfoldParagraphs(a.getCurrentParagraph())));
-        MenuItem bottomPanel = new MenuItem("Toggle Bottom Panel"); bottomPanel.setAccelerator(new KeyCodeCombination(KeyCode.J, KeyCodeCombination.CONTROL_DOWN)); bottomPanel.setOnAction(e -> toggleBottomPanel());
-        MenuItem showOutput = new MenuItem("Output"); showOutput.setOnAction(e -> showBottom(outputTab));
-        MenuItem showProblems = new MenuItem("Problems"); showProblems.setOnAction(e -> showBottom(problemsTab));
-        MenuItem showReferences = new MenuItem("References"); showReferences.setOnAction(e -> showBottom(referencesTab));
-        MenuItem showTerminal = new MenuItem("Terminal"); showTerminal.setAccelerator(new KeyCodeCombination(KeyCode.BACK_QUOTE, KeyCodeCombination.CONTROL_DOWN)); showTerminal.setOnAction(e -> { showBottom(terminalTab); terminals.focusInput(); });
-        MenuItem newTerminal = new MenuItem("New Terminal"); newTerminal.setAccelerator(new KeyCodeCombination(KeyCode.BACK_QUOTE, KeyCodeCombination.CONTROL_DOWN, KeyCodeCombination.SHIFT_DOWN)); newTerminal.setOnAction(e -> { showBottom(terminalTab); terminals.newTerminal(); });
-        CheckMenuItem darkMode = new CheckMenuItem("Dark Mode"); darkMode.setSelected(dark); darkMode.setOnAction(e -> setDarkMode(darkMode.isSelected()));
-        view.getItems().addAll(focus, new SeparatorMenuItem(), fold, unfold, new SeparatorMenuItem(), bottomPanel, showOutput, showProblems, showReferences, showTerminal, newTerminal, new SeparatorMenuItem(), darkMode);
+        view.getItems().addAll(
+            bound("View", "Focus Mode", "view.focusMode", "", () -> { Node node = projectTree.getParent(); if (node != null) { boolean visible = node.isVisible(); node.setVisible(!visible); node.setManaged(!visible); } }),
+            new SeparatorMenuItem(),
+            bound("View", "Fold Selected", "view.fold", "", () -> currentEditor().ifPresent(CodeArea::foldSelectedParagraphs)),
+            bound("View", "Unfold Current", "view.unfold", "", () -> currentEditor().ifPresent(a -> a.unfoldParagraphs(a.getCurrentParagraph()))),
+            new SeparatorMenuItem(),
+            bound("View", "Toggle Bottom Panel", "view.bottomPanel", "Ctrl+J", this::toggleBottomPanel),
+            bound("View", "Output", "view.output", "", () -> showBottom(outputTab)),
+            bound("View", "Problems", "view.problems", "", () -> showBottom(problemsTab)),
+            bound("View", "References", "view.references", "", () -> showBottom(referencesTab)),
+            bound("View", "Terminal", "view.terminal", "Ctrl+BACK_QUOTE", () -> { showBottom(terminalTab); terminals.focusInput(); }),
+            bound("View", "New Terminal", "view.newTerminal", "Ctrl+Shift+BACK_QUOTE", () -> { showBottom(terminalTab); terminals.newTerminal(); }),
+            new SeparatorMenuItem(),
+            bound("View", "Zoom In", "view.zoomIn", "Ctrl+EQUALS", () -> zoomEditors(1)),
+            bound("View", "Zoom Out", "view.zoomOut", "Ctrl+MINUS", () -> zoomEditors(-1)),
+            bound("View", "Reset Zoom", "view.zoomReset", "Ctrl+DIGIT0", () -> zoomEditors(0)),
+            new SeparatorMenuItem(), themeMenu);
 
         Menu languageMenu = new Menu("Language");
-        MenuItem startServer = new MenuItem("Start Language Server..."); startServer.setOnAction(e -> startLanguageServer());
-        MenuItem stopServer = new MenuItem("Stop Language Server"); stopServer.setOnAction(e -> stopLanguageServer());
-        MenuItem complete = new MenuItem("Complete"); complete.setAccelerator(new KeyCodeCombination(KeyCode.SPACE, KeyCombination.CONTROL_DOWN)); complete.setOnAction(e -> complete());
-        MenuItem hover = new MenuItem("Show Hover Info"); hover.setAccelerator(new KeyCodeCombination(KeyCode.I, KeyCombination.CONTROL_DOWN)); hover.setOnAction(e -> hover());
-        MenuItem definition = new MenuItem("Go to Definition"); definition.setAccelerator(new KeyCodeCombination(KeyCode.F12)); definition.setOnAction(e -> goToDefinition());
-        MenuItem findReferences = new MenuItem("Find References"); findReferences.setAccelerator(new KeyCodeCombination(KeyCode.F12, KeyCombination.SHIFT_DOWN)); findReferences.setOnAction(e -> findReferences());
-        MenuItem rename = new MenuItem("Rename Symbol..."); rename.setAccelerator(new KeyCodeCombination(KeyCode.F2)); rename.setOnAction(e -> renameSymbol());
-        MenuItem signature = new MenuItem("Signature Help"); signature.setAccelerator(new KeyCodeCombination(KeyCode.SPACE, KeyCombination.CONTROL_DOWN, KeyCombination.SHIFT_DOWN)); signature.setOnAction(e -> signatureHelp());
-        MenuItem symbols = new MenuItem("Document Symbols"); symbols.setAccelerator(new KeyCodeCombination(KeyCode.O, KeyCombination.CONTROL_DOWN, KeyCombination.SHIFT_DOWN)); symbols.setOnAction(e -> documentSymbols());
-        MenuItem format = new MenuItem("Format Document"); format.setAccelerator(new KeyCodeCombination(KeyCode.F, KeyCombination.CONTROL_DOWN, KeyCombination.SHIFT_DOWN)); format.setOnAction(e -> formatDocument());
-        languageMenu.getItems().addAll(startServer, stopServer, new SeparatorMenuItem(), complete, hover, signature, definition, findReferences, symbols, new SeparatorMenuItem(), rename, format);
+        languageMenu.getItems().addAll(
+            bound("Language", "Start Language Server...", "language.startServer", "", this::startLanguageServer),
+            bound("Language", "Stop Language Server", "language.stopServer", "", this::stopLanguageServer),
+            new SeparatorMenuItem(),
+            bound("Language", "Complete", "language.complete", "Ctrl+SPACE", this::complete),
+            bound("Language", "Show Hover Info", "language.hover", "Ctrl+I", this::hover),
+            bound("Language", "Signature Help", "language.signatureHelp", "Ctrl+Shift+SPACE", this::signatureHelp),
+            bound("Language", "Go to Definition", "language.goToDefinition", "F12", this::goToDefinition),
+            bound("Language", "Find References", "language.findReferences", "Shift+F12", this::findReferences),
+            bound("Language", "Document Symbols", "language.documentSymbols", "Ctrl+Shift+O", this::documentSymbols),
+            new SeparatorMenuItem(),
+            bound("Language", "Rename Symbol...", "language.rename", "F2", this::renameSymbol),
+            bound("Language", "Format Document", "language.format", "Ctrl+Shift+F", this::formatDocument));
 
         Menu run = new Menu("Run");
-        MenuItem build = new MenuItem("Build"); build.setAccelerator(new KeyCodeCombination(KeyCode.B, KeyCodeCombination.CONTROL_DOWN)); build.setOnAction(e -> build());
-        MenuItem runCommand = new MenuItem("Run Command..."); runCommand.setAccelerator(new KeyCodeCombination(KeyCode.F5)); runCommand.setOnAction(e -> runCommandDialog());
-        MenuItem stopAll = new MenuItem("Stop All Processes"); stopAll.setAccelerator(new KeyCodeCombination(KeyCode.PERIOD, KeyCodeCombination.CONTROL_DOWN)); stopAll.setOnAction(e -> stopAllProcesses());
-        MenuItem manage = new MenuItem("Processes..."); manage.setOnAction(e -> showProcesses());
-        run.getItems().addAll(build, runCommand, new SeparatorMenuItem(), stopAll, manage);
-        return new MenuBar(file, edit, view, languageMenu, run);
+        run.getItems().addAll(
+            bound("Run", "Build", "run.build", "Ctrl+B", this::build),
+            bound("Run", "Run Command...", "run.runCommand", "F5", this::runCommandDialog),
+            new SeparatorMenuItem(),
+            bound("Run", "Stop All Processes", "run.stopAll", "Ctrl+PERIOD", this::stopAllProcesses),
+            bound("Run", "Processes...", "run.processes", "", this::showProcesses));
+
+        Menu settingsMenu = new Menu("Settings");
+        settingsMenu.getItems().addAll(
+            bound("Settings", "Settings...", "settings.open", "Ctrl+COMMA", this::openSettingsDialog),
+            bound("Settings", "Project Settings...", "settings.project", "", this::openProjectSettingsDialog),
+            new SeparatorMenuItem(),
+            bound("Settings", "Open User Settings File", "settings.openUserFile", "", () -> openSettingsFile(Settings.Scope.USER)),
+            bound("Settings", "Open Project Settings File", "settings.openProjectFile", "", () -> openSettingsFile(Settings.Scope.PROJECT)),
+            bound("Settings", "Reload Settings", "settings.reload", "", this::reloadSettings));
+        return new MenuBar(file, edit, view, languageMenu, run, settingsMenu);
     }
 
-    /** Light is the default look; dark adds the {@code theme-dark} style class (see editor.css) to the scene root. */
+    // ---- customization (v0.8): themes, keybindings, settings ----
+    // Everything is stored in plain files (see CUSTOMIZATION.md) and applied only on startup, after the Settings
+    // dialog, or when a settings file is saved in the editor or reloaded explicitly.
+
+    /** Light is the default look; other themes add style classes (and, for custom themes, a stylesheet) to the scene root. */
     private void installTheme() {
         // Dialogs open in their own scene, so they do not inherit this window's stylesheet or theme class.
         Window.getWindows().addListener((ListChangeListener<Window>) change -> {
             while (change.next()) if (change.wasAdded()) change.getAddedSubList().forEach(this::styleDialog);
         });
+        refreshThemes();
         applyTheme();
     }
 
-    private void setDarkMode(boolean enabled) {
-        dark = enabled;
-        preferences.put(THEME_KEY, enabled ? "dark" : "light");
+    /** Re-reads the themes folder and picks the configured theme (falling back to the pre-v0.8 saved choice, then light). */
+    private void refreshThemes() {
+        themes = Themes.available(settings.themesDirectory());
+        theme = Themes.find(themes, settings.get(THEME_KEY, preferences.get(THEME_KEY, Themes.DEFAULT_ID)));
+        ToggleGroup group = new ToggleGroup();
+        themeMenu.getItems().clear();
+        for (Theme candidate : themes) {
+            RadioMenuItem item = new RadioMenuItem(candidate.name());
+            item.setToggleGroup(group);
+            item.setSelected(candidate.id().equals(theme.id()));
+            item.setOnAction(e -> chooseTheme(candidate));
+            themeMenu.getItems().add(item);
+        }
+    }
+
+    private void chooseTheme(Theme chosen) {
+        settings.put(Settings.Scope.USER, THEME_KEY, chosen.id());
+        saveUserSettings();
+        theme = chosen;
         applyTheme();
+        status.setText("Theme: " + chosen.name());
     }
 
     private void applyTheme() {
+        scene.getStylesheets().removeIf(themeSheets::contains);
+        if (theme.stylesheet() != null) {
+            String url = theme.stylesheet().toUri().toString();
+            themeSheets.add(url);
+            scene.getStylesheets().add(url); // after editor.css, so a custom theme can override it
+        }
         setThemeClass(scene.getRoot());
         Window.getWindows().forEach(this::styleDialog);
     }
@@ -223,13 +302,125 @@ public final class App extends Application {
     private void styleDialog(Window window) {
         Scene dialogScene = window.getScene();
         if (dialogScene == null || !(dialogScene.getRoot() instanceof DialogPane pane)) return;
-        for (String sheet : scene.getStylesheets()) if (!pane.getStylesheets().contains(sheet)) pane.getStylesheets().add(sheet);
+        syncStylesheets(pane);
         setThemeClass(pane);
     }
 
+    /** Gives a dialog or popup the scene's stylesheets, dropping custom-theme sheets that are no longer in use. */
+    private void syncStylesheets(Parent target) {
+        target.getStylesheets().removeIf(sheet -> themeSheets.contains(sheet) && !scene.getStylesheets().contains(sheet));
+        for (String sheet : scene.getStylesheets()) if (!target.getStylesheets().contains(sheet)) target.getStylesheets().add(sheet);
+    }
+
     private void setThemeClass(Parent root) {
-        root.getStyleClass().remove(DARK_STYLE_CLASS);
-        if (dark) root.getStyleClass().add(DARK_STYLE_CLASS);
+        root.getStyleClass().removeAll(Themes.ALL_CLASSES);
+        root.getStyleClass().addAll(theme.styleClasses());
+    }
+
+    private void applyKeybindings() {
+        keyProblems.clear();
+        for (Keybindings.Action action : keys.actions()) {
+            MenuItem item = menuItems.get(action.id());
+            if (item == null) continue;
+            String binding = keys.binding(action.id());
+            var combination = Shortcuts.parse(binding);
+            if (!binding.isEmpty() && combination == null) keyProblems.add("key." + action.id() + ": '" + binding + "' is not a shortcut Code Mate understands");
+            item.setAccelerator(combination);
+        }
+    }
+
+    /** Re-applies everything derived from settings: editor preferences, theme, shortcuts, and the project tree. */
+    private void applySettings() {
+        editorPrefs = EditorPreferences.from(settings);
+        treeExcludes = parseNames(settings.get("tree.exclude", DEFAULT_TREE_EXCLUDES));
+        refreshThemes();
+        applyTheme();
+        applyKeybindings();
+        forEachEditor(this::applyEditorPreferences);
+        refreshProjectTree();
+    }
+
+    private void reloadSettings() {
+        settings.reload();
+        applySettings();
+        if (!reportSettingsProblems(true)) status.setText("Settings reloaded");
+    }
+
+    /** Writes problems found in the settings files to the Output panel. Returns true if there were any. */
+    private boolean reportSettingsProblems(boolean reveal) {
+        List<String> problems = new ArrayList<>(settings.warnings());
+        problems.addAll(EditorPreferences.validate(settings));
+        problems.addAll(keys.problems());
+        problems.addAll(keyProblems);
+        for (String problem : problems) output.append("settings: " + problem);
+        if (problems.isEmpty()) return false;
+        status.setText(problems.size() + " settings problem(s); see Output");
+        if (reveal) showBottom(outputTab);
+        return true;
+    }
+
+    private void saveUserSettings() {
+        try { settings.save(Settings.Scope.USER); } catch (IOException ex) { showError("Could not save settings", ex.getMessage()); }
+    }
+
+    private void openSettingsDialog() {
+        if (SettingsDialog.showUser(scene.getWindow(), settings, keys, themes, theme.id())) { applySettings(); status.setText("Settings saved"); }
+    }
+
+    private void openProjectSettingsDialog() {
+        if (!requireProject("Project Settings")) return;
+        if (SettingsDialog.showProject(scene.getWindow(), settings)) { applySettings(); status.setText("Project settings saved"); }
+    }
+
+    /** Opens a settings file in an editor tab, first creating it from a fully commented template if it does not exist. */
+    private void openSettingsFile(Settings.Scope scope) {
+        Path path = scope == Settings.Scope.USER ? settings.userFile() : settings.projectFile();
+        if (path == null) { showError("Project Settings", "Open a project directory first."); return; }
+        try {
+            if (!Files.exists(path)) {
+                Files.createDirectories(path.getParent());
+                Files.writeString(path, scope == Settings.Scope.USER ? SettingsTemplates.user(keys) : SettingsTemplates.project());
+                if (scope == Settings.Scope.PROJECT) refreshProjectTree();
+            }
+        } catch (IOException ex) { showError("Could not create settings file", ex.getMessage()); return; }
+        openFile(path.toFile());
+    }
+
+    /** True for the settings files and custom theme stylesheets: saving one of them re-applies settings. */
+    private boolean isSettingsPath(File file) {
+        Path path = file.toPath().toAbsolutePath().normalize();
+        if (path.equals(settings.userFile())) return true;
+        if (settings.projectFile() != null && path.equals(settings.projectFile())) return true;
+        return path.startsWith(settings.themesDirectory()) && path.toString().toLowerCase(Locale.ROOT).endsWith(".css");
+    }
+
+    private void applyEditorPreferences(CodeArea editor) {
+        editor.setStyle(editorPrefs.style(zoom));
+        editor.setWrapText(editorPrefs.wordWrap());
+        editor.setParagraphGraphicFactory(editorPrefs.lineNumbers() ? LineNumberFactory.get(editor) : null);
+    }
+
+    private void forEachEditor(Consumer<CodeArea> action) {
+        for (Tab tab : tabs.getTabs()) if (tab.getContent() instanceof VirtualizedScrollPane<?> pane && pane.getContent() instanceof CodeArea a) action.accept(a);
+    }
+
+    /** Changes the editors' font size for this session only (0 resets); the saved font size is not touched. */
+    private void zoomEditors(int delta) {
+        zoom = delta == 0 ? 0 : Math.max(-30, Math.min(30, zoom + delta));
+        forEachEditor(this::applyEditorPreferences);
+        status.setText(zoom == 0 ? "Font size: " + editorPrefs.fontSize() : "Font size: " + editorPrefs.fontSize() + (zoom > 0 ? " +" : " ") + zoom + " (this session)");
+    }
+
+    private void refreshProjectTree() {
+        if (projectDirectory == null) return;
+        projectTree.setRoot(createTreeItem(projectDirectory));
+        projectTree.getRoot().setExpanded(true);
+    }
+
+    private static Set<String> parseNames(String commaSeparated) {
+        Set<String> names = new LinkedHashSet<>();
+        for (String name : commaSeparated.split(",")) if (!name.isBlank()) names.add(name.strip());
+        return names;
     }
 
     private Menu createRecentProjectsMenu() {
@@ -253,10 +444,11 @@ public final class App extends Application {
     private void openProjectDirectory(File directory) {
         if (!directory.isDirectory()) { showError("Could not open project", "The selected directory no longer exists."); return; }
         projectDirectory = directory.getAbsoluteFile();
-        projectTree.setRoot(createTreeItem(projectDirectory));
-        projectTree.getRoot().setExpanded(true);
+        settings.setProject(projectDirectory.toPath()); // reads <project>/.code-mate/settings.conf if there is one
+        applySettings();
         addRecentProject(projectDirectory);
         status.setText("Project: " + projectDirectory.getAbsolutePath());
+        reportSettingsProblems(false);
     }
 
     private TreeItem<File> createTreeItem(File file) {
@@ -266,7 +458,7 @@ public final class App extends Application {
             if (children != null) {
                 List<File> sorted = new ArrayList<>(List.of(children));
                 sorted.sort(Comparator.comparing(File::isFile).thenComparing(File::getName, String.CASE_INSENSITIVE_ORDER));
-                for (File child : sorted) if (!child.getName().equals(".git") && !child.getName().equals("target")) item.getChildren().add(createTreeItem(child));
+                for (File child : sorted) if (!treeExcludes.contains(child.getName())) item.getChildren().add(createTreeItem(child));
             }
         }
         return item;
@@ -304,9 +496,7 @@ public final class App extends Application {
 
     private CodeArea createEditor() {
         CodeArea editor = new CodeArea();
-        editor.setWrapText(false);
-        editor.setStyle("-fx-font-family: 'Monospaced'; -fx-font-size: 14px;");
-        editor.setParagraphGraphicFactory(LineNumberFactory.get(editor));
+        applyEditorPreferences(editor);
         editor.setOnKeyPressed(this::handleKeyPressed);
         editor.addEventHandler(KeyEvent.KEY_TYPED, e -> {
             if (hasExtraCarets(editor) && !e.getCharacter().isEmpty() && !e.isControlDown() && !e.isAltDown()) {
@@ -320,12 +510,16 @@ public final class App extends Application {
 
     private void handleKeyPressed(KeyEvent e) {
         if (!(e.getSource() instanceof CodeArea editor)) return;
-        if (e.getCode() == KeyCode.ENTER) {
+        if (e.getCode() == KeyCode.ENTER && editorPrefs.autoIndent()) {
             String line = editor.getParagraph(editor.getCurrentParagraph()).getText();
             String indent = line.replaceAll("\\S.*$", "");
             String trimmed = line.stripTrailing();
-            if (trimmed.endsWith("{") || trimmed.endsWith("[") || trimmed.endsWith("(")) indent += "    ";
+            if (trimmed.endsWith("{") || trimmed.endsWith("[") || trimmed.endsWith("(")) indent += editorPrefs.indentUnit();
             editor.insertText(editor.getCaretPosition(), "\n" + indent); e.consume();
+        } else if (e.getCode() == KeyCode.TAB && editorPrefs.insertSpaces() && !e.isShiftDown() && !e.isControlDown() && !e.isAltDown() && !e.isMetaDown() && !hasExtraCarets(editor)) {
+            int tab = editorPrefs.tabSize();
+            int column = editor.getSelection().getLength() == 0 ? editor.getCaretColumn() : 0; // pad to the next tab stop
+            editor.replaceSelection(" ".repeat(tab - column % tab)); e.consume();
         } else if ((e.getCode() == KeyCode.BACK_SPACE || e.getCode() == KeyCode.DELETE) && hasExtraCarets(editor)) {
             boolean back = e.getCode() == KeyCode.BACK_SPACE;
             List<Integer> positions = extraCarets.get(editor).stream().map(CaretNode::getPosition).sorted(Comparator.reverseOrder()).toList();
@@ -374,7 +568,8 @@ public final class App extends Application {
             status.setText("Saved: " + file.getAbsolutePath());
             if (previous != null && !previous.equals(file)) language.close(previous);
             language.saved(file, editor.getText());
-            if (projectDirectory != null && file.toPath().startsWith(projectDirectory.toPath())) { projectTree.setRoot(createTreeItem(projectDirectory)); projectTree.getRoot().setExpanded(true); }
+            if (projectDirectory != null && file.toPath().startsWith(projectDirectory.toPath())) refreshProjectTree();
+            if (isSettingsPath(file)) reloadSettings();
         } catch (IOException ex) { showError("Could not save file", ex.getMessage()); }
     }
 
@@ -433,7 +628,7 @@ public final class App extends Application {
     private File findFile(File dir, String q) {
         File[] files = dir.listFiles(); if (files == null) return null;
         for (File f : files) if (f.isFile() && f.getName().equals(q)) return f;
-        for (File f : files) if (f.isDirectory() && !f.getName().equals(".git") && !f.getName().equals("target")) { File hit = findFile(f, q); if (hit != null) return hit; }
+        for (File f : files) if (f.isDirectory() && !treeExcludes.contains(f.getName())) { File hit = findFile(f, q); if (hit != null) return hit; }
         return null;
     }
 
@@ -521,6 +716,8 @@ public final class App extends Application {
 
     private void build() {
         if (!requireProject("Build")) return;
+        String customBuild = settings.get("build.command", "").trim();
+        if (!customBuild.isEmpty()) { problems.clear(); output.append("Using build.command from settings"); runCommand("Build", customBuild); return; }
         Optional<BuildSystem> system = BuildSystem.detect(projectDirectory);
         if (system.isEmpty()) { showError("Build", "No supported build file found (pom.xml, build.gradle, Makefile, Cargo.toml, package.json). Use Run > Run Command... instead."); return; }
         problems.clear();
@@ -530,7 +727,8 @@ public final class App extends Application {
     private void runCommandDialog() {
         if (!requireProject("Run Command")) return;
         String key = "run.command." + Integer.toHexString(projectDirectory.getAbsolutePath().hashCode());
-        String suggestion = preferences.get(key, BuildSystem.detect(projectDirectory).map(BuildSystem::suggestedRunCommand).orElse(""));
+        String configured = settings.get("run.command", "").trim(); // a run.command in settings is the project's own default
+        String suggestion = !configured.isEmpty() ? configured : preferences.get(key, BuildSystem.detect(projectDirectory).map(BuildSystem::suggestedRunCommand).orElse(""));
         TextInputDialog d = new TextInputDialog(suggestion);
         d.setTitle("Run Command"); d.setHeaderText("Command to run in " + projectDirectory.getAbsolutePath()); d.setContentText("Command:");
         d.showAndWait().filter(s -> !s.isBlank()).ifPresent(command -> { preferences.put(key, command.trim()); runCommand("Run", command.trim()); });
@@ -663,7 +861,7 @@ public final class App extends Application {
     }
 
     private void popupStyler(Parent root) {
-        for (String sheet : scene.getStylesheets()) if (!root.getStylesheets().contains(sheet)) root.getStylesheets().add(sheet);
+        syncStylesheets(root);
         setThemeClass(root);
     }
 
@@ -689,7 +887,7 @@ public final class App extends Application {
             if (language.isRunning(id)) { status.setText("The " + id + " language server is already running"); return; }
             File root = projectDirectory != null ? projectDirectory : file.getAbsoluteFile().getParentFile();
             String key = "language.server." + id;
-            TextInputDialog d = new TextInputDialog(preferences.get(key, Languages.suggestedCommand(id)));
+            TextInputDialog d = new TextInputDialog(settings.get(key, preferences.get(key, Languages.suggestedCommand(id))));
             d.setTitle("Start Language Server");
             d.setHeaderText("Command for the " + id + " language server.\nIt runs in " + root.getAbsolutePath() + " and is started only if you confirm.");
             d.setContentText("Command:");
@@ -797,7 +995,7 @@ public final class App extends Application {
     private void formatDocument() {
         withLanguageEditor((editor, file) -> {
             String snapshot = editor.getText();
-            language.formatting(file, 4, true).whenComplete((edits, err) -> Platform.runLater(() -> {
+            language.formatting(file, editorPrefs.tabSize(), editorPrefs.insertSpaces()).whenComplete((edits, err) -> Platform.runLater(() -> {
                 if (err != null) { languageError(err); return; }
                 if (edits.isEmpty()) { status.setText("Nothing to format"); return; }
                 if (!snapshot.equals(editor.getText())) { status.setText("The file changed while formatting; nothing was applied"); return; }

@@ -72,3 +72,9 @@ Prefer fewer dependencies.
 `com.code_mate.language` is JavaFX-free. `LanguageService` tracks open documents and routes them to user-started servers; `LanguageServerSession` owns one server process and the protocol handshake; `JsonRpc` and `Json` are a small stdio JSON-RPC client written against the JDK, because an LSP client needs very little JSON and the dependency rule asks for a reason to add one. `App` only translates between editor state and this package.
 
 Beyond the v0.5 roadmap items, `LanguageServerSession` also offers signature help, document symbols and whole-document formatting. Each is an explicit menu command under Language; formatting edits are applied to the editor buffer only (unsaved, undoable) and are discarded if the text changed while the server was working.
+
+## Customization (v0.8)
+
+`com.code_mate.settings` is JavaFX-free, like `language`. `Settings` layers a user file and a project file over defaults held by the caller; the file format is deliberately trivial (`key=value`, `#` comments, values verbatim) and writes preserve the user's comments and ordering. `Keybindings` is a registry of action ids and shortcut strings, `EditorPreferences` is the validated `editor.*` view of the settings, and `Themes` discovers built-in and custom themes. `App` registers each menu item with `Keybindings`, and `ui.Shortcuts` is the only place shortcut strings become JavaFX key combinations. `ui.SettingsDialog` is a thin editor over the same files.
+
+Two rules keep customization from becoming ambient behavior: `theme` and `key.*` are read from the user file only (a project cannot restyle or rebind the editor by being opened), and project commands (`run.command`, `build.command`, `language.server.*`) are either pre-filled into a confirmation dialog or echoed in the Output panel when used. The `java.util.prefs` store still holds recent projects and last-used commands. See `CUSTOMIZATION.md`.

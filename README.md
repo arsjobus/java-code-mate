@@ -78,6 +78,7 @@ intentional-code-editor/
 ├── AI.md
 ├── EXTENSIONS.md
 ├── SECURITY.md
+├── CUSTOMIZATION.md
 ├── BUGS.md
 └── src/
     ├── main/java/com/code_mate/App.java

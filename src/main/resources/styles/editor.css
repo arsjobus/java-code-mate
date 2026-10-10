@@ -53,3 +53,33 @@
 .theme-dark.popup-pane.scroll-pane > .viewport { -fx-background-color: #252526; }
 .theme-dark .code-area .diag-error { -rtfx-underline-color: #f48771; }
 .theme-dark .code-area .diag-warning { -rtfx-underline-color: #cca700; }
+
+/*
+ * v0.8 high-contrast theme. App adds .theme-dark and .theme-hc together, so the dark rules above still apply
+ * (popups, diagnostics, status colors); the rules below only push contrast further. Must stay after the dark rules.
+ */
+.root.theme-hc {
+    -fx-base: #000000;
+    -fx-background: #000000;
+    -fx-control-inner-background: #000000;
+    -fx-text-base-color: #ffffff;
+    -fx-focus-color: #ffd866;
+}
+.theme-hc .code-area { -fx-background-color: #000000; }
+.theme-hc .code-area .text { -fx-fill: #ffffff; }
+.theme-hc .code-area .caret { -fx-stroke: #ffffff; }
+.theme-hc .code-area .lineno { -fx-background-color: #000000; -fx-text-fill: #cccccc; }
+.theme-hc .code-area .lineno .text { -fx-fill: #cccccc; }
+.theme-hc .code-area .keyword { -fx-fill: #4fc1ff; }
+.theme-hc .code-area .type { -fx-fill: #00ffd0; }
+.theme-hc .code-area .string { -fx-fill: #ff9d5c; }
+.theme-hc .code-area .comment { -fx-fill: #8fd18f; }
+.theme-hc .code-area .annotation { -fx-fill: #ffd866; }
+.theme-hc .code-area .number { -fx-fill: #c3ffa0; }
+.theme-hc .problem-error { -fx-text-fill: #ff6b6b; }
+.theme-hc .problem-warning { -fx-text-fill: #ffd866; }
+.theme-hc.popup-pane { -fx-background-color: #000000; -fx-border-color: #ffffff; }
+.theme-hc.popup-pane .list-cell { -fx-text-fill: #ffffff; }
+.theme-hc.popup-pane .list-cell:filled:selected { -fx-background-color: #ffd866; -fx-text-fill: #000000; }
+.theme-hc.popup-pane .popup-text { -fx-text-fill: #ffffff; }
+.theme-hc.popup-pane.scroll-pane > .viewport { -fx-background-color: #000000; }
