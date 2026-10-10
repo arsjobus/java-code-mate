@@ -54,7 +54,7 @@
 - [x] Find references
 - [x] Rename
 
-## v0.6 — Git
+## v0.6 — Git (Skipped)
 
 - [ ] Status
 - [ ] Diff
