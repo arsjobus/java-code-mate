@@ -5,6 +5,7 @@ import com.code_mate.editor.Indentation;
 import com.code_mate.editor.SyntaxHighlighter;
 import com.code_mate.io.CrashLog;
 import com.code_mate.io.FileIO;
+import com.code_mate.io.ProjectFiles;
 import com.code_mate.io.RecoveryStore;
 import com.code_mate.build.ManagedProcess;
 import com.code_mate.build.Problem;
@@ -73,6 +74,7 @@ public final class App extends Application {
     private static final String DEFAULT_TREE_EXCLUDES = ".git,target";
     private final TabPane tabs = new TabPane();
     private final TreeView<File> projectTree = new TreeView<>();
+    private final ContextMenu treeMenu = new ContextMenu();
     private final Label status = new Label("Ready");
     private final Preferences preferences = Preferences.userNodeForPackage(App.class);
     private final Map<Tab, Boolean> dirty = new HashMap<>();
@@ -121,11 +123,26 @@ public final class App extends Application {
         stage.setTitle("Code Mate");
         projectTree.setShowRoot(true);
         projectTree.setCellFactory(tree -> new TreeCell<>() {
+            {   // right-clicking a row selects it first, so the menu always acts on the row under the pointer
+                setOnContextMenuRequested(event -> { if (!isEmpty() && getTreeItem() != null) projectTree.getSelectionModel().select(getTreeItem()); });
+            }
             @Override protected void updateItem(File file, boolean empty) {
                 super.updateItem(file, empty);
                 setText(empty || file == null ? null : file.getName());
+                setContextMenu(empty || file == null ? null : treeMenu);
             }
         });
+        MenuItem newFile = new MenuItem("New File..."), newFolder = new MenuItem("New Folder..."), delete = new MenuItem("Delete...");
+        newFile.setOnAction(e -> createInTree(false));
+        newFolder.setOnAction(e -> createInTree(true));
+        delete.setOnAction(e -> deleteFromTree());
+        treeMenu.getItems().addAll(newFile, newFolder, new SeparatorMenuItem(), delete);
+        // Right-clicking the empty part of the sidebar adds to the project folder itself.
+        MenuItem rootFile = new MenuItem("New File..."), rootFolder = new MenuItem("New Folder...");
+        rootFile.setOnAction(e -> { projectTree.getSelectionModel().clearSelection(); createInTree(false); });
+        rootFolder.setOnAction(e -> { projectTree.getSelectionModel().clearSelection(); createInTree(true); });
+        projectTree.setContextMenu(new ContextMenu(rootFile, rootFolder));
+        projectTree.setOnKeyPressed(event -> { if (event.getCode() == KeyCode.DELETE || event.getCode() == KeyCode.BACK_SPACE && event.isShortcutDown()) { deleteFromTree(); event.consume(); } });
         projectTree.setOnMouseClicked(event -> {
             if (event.getButton() == MouseButton.PRIMARY && event.getClickCount() == 2) {
                 TreeItem<File> item = projectTree.getSelectionModel().getSelectedItem();
@@ -418,8 +435,102 @@ public final class App extends Application {
 
     private void refreshProjectTree() {
         if (projectDirectory == null) return;
+        Set<File> expanded = new HashSet<>();
+        collectExpanded(projectTree.getRoot(), expanded);
         projectTree.setRoot(createTreeItem(projectDirectory));
+        restoreExpanded(projectTree.getRoot(), expanded);
         projectTree.getRoot().setExpanded(true);
+    }
+
+    /** Rebuilding the tree must not fold every folder the person had open. */
+    private static void collectExpanded(TreeItem<File> item, Set<File> into) {
+        if (item == null) return;
+        if (item.isExpanded()) into.add(item.getValue());
+        for (TreeItem<File> child : item.getChildren()) collectExpanded(child, into);
+    }
+
+    private static void restoreExpanded(TreeItem<File> item, Set<File> expanded) {
+        if (expanded.contains(item.getValue())) item.setExpanded(true);
+        for (TreeItem<File> child : item.getChildren()) restoreExpanded(child, expanded);
+    }
+
+    private static TreeItem<File> findTreeItem(TreeItem<File> item, File file) {
+        if (item == null) return null;
+        if (item.getValue().equals(file)) return item;
+        if (!ProjectFiles.isInside(item.getValue().toPath(), file.toPath())) return null;
+        for (TreeItem<File> child : item.getChildren()) { TreeItem<File> found = findTreeItem(child, file); if (found != null) return found; }
+        return null;
+    }
+
+    /** Expands the folders above {@code file}, selects it and scrolls it into view. */
+    private void revealInTree(File file) {
+        TreeItem<File> item = findTreeItem(projectTree.getRoot(), file);
+        if (item == null) return;
+        for (TreeItem<File> parent = item.getParent(); parent != null; parent = parent.getParent()) parent.setExpanded(true);
+        projectTree.getSelectionModel().select(item);
+        projectTree.scrollTo(projectTree.getRow(item));
+    }
+
+    /** New file or folder: inside the folder that was right-clicked, beside the file that was, or in the project folder. */
+    private void createInTree(boolean folder) {
+        String what = folder ? "folder" : "file";
+        if (!requireProject("New " + what)) return;
+        TreeItem<File> selected = projectTree.getSelectionModel().getSelectedItem();
+        Path directory = ProjectFiles.directoryFor((selected == null ? projectDirectory : selected.getValue()).toPath());
+        String name = "";
+        while (true) {
+            TextInputDialog dialog = new TextInputDialog(name);
+            dialog.setTitle("New " + what);
+            dialog.setHeaderText("New " + what + " in " + (directory.equals(projectDirectory.toPath()) ? projectDirectory.getName() : displayPath(directory.toFile())));
+            dialog.setContentText("Name:");
+            Optional<String> answer = dialog.showAndWait();
+            if (answer.isEmpty()) return;
+            name = answer.get();
+            try {
+                Path created = folder ? ProjectFiles.createFolder(directory, name) : ProjectFiles.createFile(directory, name);
+                refreshProjectTree();
+                revealInTree(created.toFile());
+                if (!folder) openFile(created.toFile());
+                status.setText("Created " + what + ": " + created);
+                return;
+            } catch (IOException ex) {
+                showError("Could not create " + what, ex.getMessage()); // then ask again, keeping what was typed
+            }
+        }
+    }
+
+    /** Deletes the selected file or folder after asking. This is permanent: it does not go to a trash. */
+    private void deleteFromTree() {
+        if (!requireProject("Delete")) return;
+        TreeItem<File> selected = projectTree.getSelectionModel().getSelectedItem();
+        if (selected == null) { status.setText("Select a file or folder to delete first."); return; }
+        File target = selected.getValue();
+        if (target.equals(projectDirectory)) { status.setText("The project folder itself cannot be deleted from here."); return; }
+        Path path = target.toPath();
+        List<Tab> open = new ArrayList<>();
+        for (Tab tab : tabs.getTabs()) if (tab.getUserData() instanceof File f && ProjectFiles.isInside(path, f.toPath())) open.add(tab);
+        long unsaved = open.stream().filter(t -> Boolean.TRUE.equals(dirty.get(t))).count();
+        String inside = "";
+        if (target.isDirectory()) { try { inside = ProjectFiles.contents(path).describe(); } catch (IOException ignored) { /* the count is only a courtesy */ } }
+        StringBuilder message = new StringBuilder(target.isDirectory()
+            ? "Delete the folder \"" + target.getName() + "\"" + (inside.isEmpty() ? "?" : " and everything in it (" + inside + ")?")
+            : "Delete \"" + target.getName() + "\"?");
+        message.append("\n\nThis cannot be undone; the files are not moved to a trash.");
+        if (!open.isEmpty()) message.append("\n\n").append(open.size()).append(open.size() == 1 ? " open tab will be closed" : " open tabs will be closed")
+            .append(unsaved == 0 ? "." : ", and " + unsaved + (unsaved == 1 ? " has unsaved changes that will be lost." : " have unsaved changes that will be lost."));
+        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
+        ButtonType delete = new ButtonType("Delete", ButtonBar.ButtonData.OK_DONE), cancel = ButtonType.CANCEL;
+        confirm.setTitle("Delete"); confirm.setHeaderText(null); confirm.setContentText(message.toString());
+        confirm.getButtonTypes().setAll(delete, cancel);
+        if (confirm.showAndWait().orElse(cancel) != delete) return;
+        try {
+            ProjectFiles.delete(projectDirectory.toPath(), path);
+            status.setText("Deleted: " + displayPath(target));
+        } catch (IOException ex) {
+            showError("Could not delete", ex.getMessage()); // part of a folder may already be gone; the tree below shows what is left
+        }
+        for (Tab tab : open) if (!Files.exists(((File) tab.getUserData()).toPath())) tabs.getTabs().remove(tab);
+        refreshProjectTree();
     }
 
     private static Set<String> parseNames(String commaSeparated) {

@@ -4,7 +4,7 @@ Known issues for the initial foundation.
 
 ## Current
 
-- [ ] The editor currently has no full project/file-tree model.
+- [ ] The project tree is a snapshot of the folder: files can be created and deleted from it (right-click), but it cannot rename or move entries, and it does not notice changes made outside the editor until it is refreshed (e.g. by saving settings).
 - [ ] Syntax highlighting is Java-oriented and is applied to every file regardless of language; it is switched off above 1 million characters.
 - [ ] The integrated terminal is line-oriented (no PTY): full-screen programs and job control do not work.
 - [ ] Windows terminals: Ctrl+C terminates the command rather than interrupting it, and virtualenv detection is untested.
