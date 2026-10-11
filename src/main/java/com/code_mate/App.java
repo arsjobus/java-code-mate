@@ -704,6 +704,7 @@ public final class App extends Application {
         try {
             FileIO.writeAtomic(file.toPath(), editor.getText());
             tab.setUserData(file); dirty.put(tab, false); updateTabTitle(tab); discardSnapshot(tab);
+            if (!file.equals(previous)) highlight(editor); // a new name can change whether the file is highlighted
             status.setText("Saved: " + file.getAbsolutePath());
             if (previous != null && !previous.equals(file)) language.close(previous);
             language.saved(file, editor.getText());
@@ -808,7 +809,7 @@ public final class App extends Application {
         if (text.isEmpty()) return; // StyleSpansBuilder refuses to build zero spans
         if (SyntaxHighlighter.tooLarge(text.length())) { a.clearStyle(0, text.length()); return; } // keeps typing responsive in huge files
         StyleSpansBuilder<Collection<String>> b = new StyleSpansBuilder<>(); int last = 0;
-        for (SyntaxHighlighter.Span span : SyntaxHighlighter.spans(text)) {
+        for (SyntaxHighlighter.Span span : SyntaxHighlighter.spans(text, fileOf(a))) {
             if (span.start() > last) b.add(Collections.emptyList(), span.start() - last);
             b.add(Collections.singleton(span.style()), span.end() - span.start()); last = span.end();
         }

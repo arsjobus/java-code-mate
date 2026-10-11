@@ -3,8 +3,11 @@ package com.code_mate.editor;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.code_mate.editor.SyntaxHighlighter.Span;
+import java.io.File;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class SyntaxHighlighterTest {
     private static List<String> styled(String text) {
@@ -96,5 +99,41 @@ class SyntaxHighlighterTest {
         long start = System.nanoTime();
         SyntaxHighlighter.spans(line.repeat(5));
         assertTrue((System.nanoTime() - start) / 1_000_000 < 5_000);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"A.java", "a.JAVA", "a.kt", "a.kts", "a.js", "a.mjs", "a.cjs", "a.jsx", "a.ts", "a.tsx", "a.c", "a.h", "a.cpp", "a.cc", "a.cxx", "a.hpp", "a.hh",
+        "a.go", "a.rs", "a.php", "a.json", "archive.tar.java", "dir.py/Main.java"})
+    void cFamilyFilesAreHighlighted(String name) { assertTrue(SyntaxHighlighter.appliesTo(new File(name)), name); }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"a.py", "a.pyi", "a.rb", "a.sh", "a.bash", "a.md", "a.txt", "a.xml", "a.yml", "a.properties", "README", "Makefile", ".bashrc", "trailing.", "a.java.bak", "dir.java/notes"})
+    void otherFilesAreShownAsPlainText(String name) { assertFalse(SyntaxHighlighter.appliesTo(new File(name)), name); }
+
+    @Test void anUntitledBufferIsHighlighted() { assertTrue(SyntaxHighlighter.appliesTo(null)); }
+
+    @Test void proseInAPlainTextFileIsNeverColoured() {
+        String prose = "don't panic: it's \"fine\" // not a comment\nclass of 42 things /* nor this */";
+        assertTrue(SyntaxHighlighter.spans(prose, new File("notes.txt")).isEmpty());
+        assertTrue(SyntaxHighlighter.spans(prose, new File("README")).isEmpty());
+        assertFalse(SyntaxHighlighter.spans(prose, new File("Notes.java")).isEmpty());
+    }
+
+    @Test void pythonCommentsAndApostrophesAreNotTreatedAsJava() {
+        String python = "# it's a comment\nclass Foo:\n    x = 'don\\'t'  # 42\n";
+        assertTrue(SyntaxHighlighter.spans(python, new File("main.py")).isEmpty());
+    }
+
+    @Test void spansWithAFileMatchesPlainSpansWhenTheFileIsHighlighted() {
+        String code = "public class A { int x = 1; // c\n }";
+        assertEquals(SyntaxHighlighter.spans(code), SyntaxHighlighter.spans(code, new File("A.java")));
+        assertEquals(SyntaxHighlighter.spans(code), SyntaxHighlighter.spans(code, null));
+        assertTrue(SyntaxHighlighter.spans("", new File("a.py")).isEmpty());
+    }
+
+    @Test void theResultForAnUnhighlightedFileIsIndependentOfTheScanner() {
+        List<Span> a = SyntaxHighlighter.spans("class A", new File("a.txt"));
+        a.add(new Span(0, 1, "x")); // callers may mutate the returned list without affecting later calls
+        assertTrue(SyntaxHighlighter.spans("class A", new File("a.txt")).isEmpty());
     }
 }

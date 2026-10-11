@@ -1,7 +1,9 @@
 package com.code_mate.editor;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
 /**
@@ -16,6 +18,10 @@ import java.util.Set;
  * <p>Strings and character literals end at the end of the line, so a stray quote cannot colour the rest of the
  * file; an unterminated block comment runs to the end of the text (as in most editors); text blocks
  * ({@code """}) may span lines.
+ *
+ * <p>The scanner only understands C-family syntax ({@code //} and {@code /* *}{@code /} comments, double and single
+ * quoted literals), so {@link #spans(String, File)} leaves files of other kinds (Python, shell, Markdown, plain
+ * text, ...) unstyled instead of colouring an apostrophe in prose or a {@code #} comment as if it were Java.
  */
 public final class SyntaxHighlighter {
     /** Documents longer than this get no highlighting. Roughly {@code FileIO.LARGE_FILE_BYTES} of ASCII text. */
@@ -30,10 +36,28 @@ public final class SyntaxHighlighter {
     private static final Set<String> TYPES = Set.of("boolean", "byte", "char", "double", "float", "int", "long", "short", "String", "Object", "Integer", "Long",
         "Double", "Float", "Boolean", "System", "List", "Map", "Set", "File");
 
+    /** Extensions (lower case, no dot) of files whose syntax the scanner understands. */
+    private static final Set<String> EXTENSIONS = Set.of("java", "kt", "kts", "js", "mjs", "cjs", "jsx", "ts", "tsx", "c", "h", "cpp", "cc", "cxx", "hpp", "hh",
+        "go", "rs", "php", "json");
+
     private SyntaxHighlighter() {}
+
+    /**
+     * True when the file should get syntax highlighting: an untitled buffer (the editor is Java-oriented), or a file
+     * with a C-family extension. Other files, and files without an extension, are shown as plain text.
+     */
+    public static boolean appliesTo(File file) {
+        if (file == null) return true;
+        String name = file.getName();
+        int dot = name.lastIndexOf('.');
+        return dot >= 0 && EXTENSIONS.contains(name.substring(dot + 1).toLowerCase(Locale.ROOT));
+    }
 
     /** True when {@link #spans} would produce nothing because the text is too long. */
     public static boolean tooLarge(int length) { return length > MAX_CHARS; }
+
+    /** Like {@link #spans(String)}, but empty when {@link #appliesTo(File)} says the file is not highlightable. */
+    public static List<Span> spans(String text, File file) { return appliesTo(file) ? spans(text) : new ArrayList<>(); }
 
     /** The tokens of the text in order, without overlaps. Empty for text over {@link #MAX_CHARS}. */
     public static List<Span> spans(String text) {
