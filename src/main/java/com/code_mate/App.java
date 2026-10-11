@@ -1,6 +1,10 @@
 package com.code_mate;
 
 import com.code_mate.build.BuildSystem;
+import com.code_mate.editor.SyntaxHighlighter;
+import com.code_mate.io.CrashLog;
+import com.code_mate.io.FileIO;
+import com.code_mate.io.RecoveryStore;
 import com.code_mate.build.ManagedProcess;
 import com.code_mate.build.Problem;
 import com.code_mate.build.ProblemParser;
@@ -66,14 +70,6 @@ public final class App extends Application {
     private static final int MAX_RECENT_PROJECTS = 8;
     private static final String THEME_KEY = "theme";
     private static final String DEFAULT_TREE_EXCLUDES = ".git,target";
-    private static final Pattern TOKEN = Pattern.compile(
-        "(?<comment>//[^\\n]*|/\\*[\\s\\S]*?\\*/)|" +
-        "(?<string>\"(?:\\\\.|[^\"\\\\])*\"|'(?:\\\\.|[^'\\\\])*')|" +
-        "(?<annotation>@[A-Za-z_$][\\w$]*)|" +
-        "(?<keyword>\\b(?:abstract|assert|break|case|catch|class|continue|default|do|else|enum|extends|final|finally|for|if|implements|import|instanceof|interface|new|package|private|protected|public|return|static|super|switch|synchronized|this|throw|throws|try|var|void|while|record|sealed|yield)\\b)|" +
-        "(?<type>\\b(?:boolean|byte|char|double|float|int|long|short|String|Object|Integer|Long|Double|Float|Boolean|System|List|Map|Set|File)\\b)|" +
-        "(?<number>\\b\\d+(?:\\.\\d+)?\\b)"
-    );
     private final TabPane tabs = new TabPane();
     private final TreeView<File> projectTree = new TreeView<>();
     private final Label status = new Label("Ready");
@@ -112,8 +108,15 @@ public final class App extends Application {
     private EditorPreferences editorPrefs = EditorPreferences.from(settings);
     private Set<String> treeExcludes = parseNames(settings.get("tree.exclude", DEFAULT_TREE_EXCLUDES));
     private int zoom; // temporary font-size offset for this session; never saved
+    private static final int AUTOSAVE_SECONDS = 5;
+    private final RecoveryStore recovery = new RecoveryStore(settings.userFile().getParent().resolve("recovery"));
+    private final Map<Tab, String> recoveryIds = new HashMap<>();
+    private final java.util.concurrent.ExecutorService recoveryWriter = java.util.concurrent.Executors.newSingleThreadExecutor(r -> { Thread t = new Thread(r, "recovery-writer"); t.setDaemon(true); return t; });
+    private javafx.animation.Timeline autosave;
 
     @Override public void start(Stage stage) {
+        CrashLog.install(settings.userFile().getParent().resolve("crashes"), report -> Platform.runLater(() ->
+            status.setText(report == null ? "An unexpected error occurred." : "An unexpected error occurred; a report was saved to " + report)));
         stage.setTitle("Code Mate");
         projectTree.setShowRoot(true);
         projectTree.setCellFactory(tree -> new TreeCell<>() {
@@ -160,9 +163,10 @@ public final class App extends Application {
         installTheme();
         applyKeybindings();
         stage.setScene(scene);
-        stage.setOnCloseRequest(event -> { if (!confirmCloseDirtyTabs()) event.consume(); });
+        stage.setOnCloseRequest(event -> { if (!confirmCloseDirtyTabs()) event.consume(); else if (autosave != null) autosave.stop(); });
         stage.show();
         reportSettingsProblems(false);
+        startCrashRecovery();
     }
 
     /** Creates a menu item whose shortcut can be rebound: its id and default are registered with {@link #keys}. */
@@ -185,7 +189,7 @@ public final class App extends Application {
             bound("File", "Save", "file.save", "", () -> saveCurrent(false)),
             bound("File", "Save As...", "file.saveAs", "", () -> saveCurrent(true)),
             bound("File", "Close", "file.close", "", this::closeCurrentTab), new SeparatorMenuItem(),
-            bound("File", "Exit", "file.exit", "", stage::close));
+            bound("File", "Exit", "file.exit", "", () -> stage.fireEvent(new javafx.stage.WindowEvent(stage, javafx.stage.WindowEvent.WINDOW_CLOSE_REQUEST))));
 
         Menu edit = new Menu("Edit");
         edit.getItems().addAll(
@@ -472,9 +476,10 @@ public final class App extends Application {
     private void openFile(File file) {
         for (Tab tab : tabs.getTabs()) if (file.equals(tab.getUserData())) { tabs.getSelectionModel().select(tab); return; }
         try {
-            CodeArea editor = createEditor(); editor.replaceText(Files.readString(file.toPath())); editor.moveTo(0);
+            CodeArea editor = createEditor(); editor.replaceText(FileIO.readText(file.toPath())); editor.moveTo(0);
             Tab tab = createTab(file.getName(), editor, file); tabs.getTabs().add(tab); tabs.getSelectionModel().select(tab);
-            dirty.put(tab, false); language.open(file, editor.getText()); highlight(editor); status.setText("Opened: " + file.getAbsolutePath());
+            dirty.put(tab, false); language.open(file, editor.getText()); highlight(editor);
+            status.setText((SyntaxHighlighter.tooLarge(editor.getLength()) ? "Opened (large file, syntax highlighting is off): " : "Opened: ") + file.getAbsolutePath());
         } catch (IOException ex) { showError("Could not open file", ex.getMessage()); }
     }
 
@@ -560,11 +565,12 @@ public final class App extends Application {
         File previous = file;
         if (file == null || forceChoose) {
             FileChooser chooser = new FileChooser(); chooser.setTitle("Save File");
-            file = chooser.showSaveDialog(tabs.getScene().getWindow()); if (file == null) return; tab.setUserData(file);
+            file = chooser.showSaveDialog(tabs.getScene().getWindow()); if (file == null) return;
         }
         CodeArea editor = currentEditor().orElse(null); if (editor == null) return;
         try {
-            Files.writeString(file.toPath(), editor.getText()); dirty.put(tab, false); updateTabTitle(tab);
+            FileIO.writeAtomic(file.toPath(), editor.getText());
+            tab.setUserData(file); dirty.put(tab, false); updateTabTitle(tab); discardSnapshot(tab);
             status.setText("Saved: " + file.getAbsolutePath());
             if (previous != null && !previous.equals(file)) language.close(previous);
             language.saved(file, editor.getText());
@@ -583,7 +589,8 @@ public final class App extends Application {
         alert.getButtonTypes().setAll(save, discard, cancel);
         ButtonType result = alert.showAndWait().orElse(cancel);
         if (result == save) { tabs.getSelectionModel().select(tab); saveCurrent(false); return !Boolean.TRUE.equals(dirty.get(tab)); }
-        return result == discard;
+        if (result == discard) { discardSnapshot(tab); return true; }
+        return false;
     }
 
     private boolean confirmCloseDirtyTabs() { for (Tab tab : new ArrayList<>(tabs.getTabs())) if (!confirmClose(tab)) return false; return true; }
@@ -664,14 +671,13 @@ public final class App extends Application {
     }
 
     private void highlight(CodeArea a) {
-        String text = a.getText(); StyleSpansBuilder<Collection<String>> b = new StyleSpansBuilder<>();
-        Matcher m = TOKEN.matcher(text); int last = 0;
-        while (m.find()) {
-            if (m.start() > last) b.add(Collections.emptyList(), m.start() - last);
-            String style = m.group("comment") != null ? "comment" : m.group("string") != null ? "string" :
-                    m.group("annotation") != null ? "annotation" : m.group("keyword") != null ? "keyword" :
-                    m.group("type") != null ? "type" : "number";
-            b.add(Collections.singleton(style), m.end() - m.start()); last = m.end();
+        String text = a.getText();
+        if (text.isEmpty()) return; // StyleSpansBuilder refuses to build zero spans
+        if (SyntaxHighlighter.tooLarge(text.length())) { a.clearStyle(0, text.length()); return; } // keeps typing responsive in huge files
+        StyleSpansBuilder<Collection<String>> b = new StyleSpansBuilder<>(); int last = 0;
+        for (SyntaxHighlighter.Span span : SyntaxHighlighter.spans(text)) {
+            if (span.start() > last) b.add(Collections.emptyList(), span.start() - last);
+            b.add(Collections.singleton(span.style()), span.end() - span.start()); last = span.end();
         }
         if (last < text.length()) b.add(Collections.emptyList(), text.length() - last);
         StyleSpans<Collection<String>> spans = b.create();
@@ -816,8 +822,58 @@ public final class App extends Application {
         Subscription subscription = subscriptions.remove(tab);
         if (subscription != null) subscription.unsubscribe();
         dirty.remove(tab);
+        discardSnapshot(tab);
         File file = (File) tab.getUserData();
         if (file != null) language.close(file);
+    }
+
+    // ---- crash recovery: unsaved buffers are copied to the user's own disk every few seconds and removed once saved or discarded ----
+
+    private void startCrashRecovery() {
+        recoveryWriter.execute(() -> recovery.purgeOlderThan(java.time.Duration.ofDays(30)));
+        autosave = new javafx.animation.Timeline(new javafx.animation.KeyFrame(javafx.util.Duration.seconds(AUTOSAVE_SECONDS), e -> snapshotDirtyTabs()));
+        autosave.setCycleCount(javafx.animation.Animation.INDEFINITE);
+        autosave.play();
+        List<RecoveryStore.Snapshot> leftovers = recovery.pending();
+        if (leftovers.isEmpty()) return;
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+        alert.setTitle("Recover unsaved work");
+        alert.setHeaderText(leftovers.size() + (leftovers.size() == 1 ? " document was" : " documents were") + " not saved when Code Mate last closed unexpectedly.");
+        alert.setContentText("Restore " + (leftovers.size() == 1 ? "it" : "them") + " into editor tabs? Choosing Discard deletes the recovered copies.");
+        ButtonType restore = new ButtonType("Restore"), discard = new ButtonType("Discard");
+        alert.getButtonTypes().setAll(restore, discard);
+        if (alert.showAndWait().orElse(discard) != restore) { recovery.clear(); return; }
+        for (RecoveryStore.Snapshot snapshot : leftovers) restoreSnapshot(snapshot);
+        status.setText("Restored " + leftovers.size() + (leftovers.size() == 1 ? " unsaved document" : " unsaved documents"));
+    }
+
+    private void restoreSnapshot(RecoveryStore.Snapshot snapshot) {
+        File original = snapshot.original() == null ? null : snapshot.original().toFile();
+        CodeArea editor = createEditor(); editor.replaceText(snapshot.text()); editor.moveTo(0);
+        Tab tab = createTab(original == null ? "Untitled" : original.getName(), editor, original);
+        tabs.getTabs().add(tab);
+        dirty.put(tab, true); updateTabTitle(tab);
+        recoveryIds.put(tab, snapshot.id()); // keep the same snapshot file, so it is replaced rather than duplicated
+        if (original != null && original.isFile() && original.lastModified() > snapshot.savedAt().toEpochMilli())
+            status.setText(original.getName() + " changed on disk after this copy was made; check before saving over it.");
+        tabs.getSelectionModel().select(tab);
+        highlight(editor);
+    }
+
+    private void snapshotDirtyTabs() {
+        for (Tab tab : tabs.getTabs()) {
+            if (!Boolean.TRUE.equals(dirty.get(tab))) continue;
+            if (!(tab.getContent() instanceof VirtualizedScrollPane<?> pane) || !(pane.getContent() instanceof CodeArea editor)) continue;
+            String id = recoveryIds.computeIfAbsent(tab, t -> RecoveryStore.newId());
+            File file = (File) tab.getUserData();
+            String text = editor.getText();
+            recoveryWriter.execute(() -> { try { recovery.saveIfChanged(id, file == null ? null : file.toPath(), text); } catch (IOException ignored) { /* retried on the next tick */ } });
+        }
+    }
+
+    private void discardSnapshot(Tab tab) {
+        String id = recoveryIds.remove(tab);
+        if (id != null) recoveryWriter.execute(() -> recovery.discard(id));
     }
 
     private static File toFile(URI uri) {
@@ -1127,7 +1183,7 @@ public final class App extends Application {
 
     private void showError(String title, String message) { Alert a = new Alert(Alert.AlertType.ERROR); a.setTitle(title); a.setHeaderText(null); a.setContentText(message == null ? "Unknown error." : message); a.showAndWait(); }
 
-    @Override public void stop() { language.stopAll(); processes.stopAll(); subscriptions.values().forEach(Subscription::unsubscribe); }
+    @Override public void stop() { if (autosave != null) autosave.stop(); recoveryWriter.shutdown(); language.stopAll(); processes.stopAll(); subscriptions.values().forEach(Subscription::unsubscribe); }
 
     public static void main(String[] args) { launch(args); }
 }

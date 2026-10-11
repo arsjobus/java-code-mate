@@ -159,10 +159,64 @@ public final class Lsp {
         return out;
     }
 
-    /** Removes snippet syntax ({@code $1}, {@code ${1:name}}, {@code $0}) leaving the default text. */
+    /**
+     * Removes snippet syntax, leaving the text a user would have after accepting every default: {@code $1} and
+     * {@code ${1}} vanish, {@code ${1:name}} becomes {@code name} (placeholders may nest), {@code ${1|a,b|}} becomes
+     * the first choice, {@code ${VAR:default}} becomes the default, and backslash escapes ({@code \$}, {@code \}},
+     * {@code \\}) become the literal character. Anything malformed is kept as written rather than guessed at.
+     */
     static String flattenSnippet(String snippet) {
-        String s = snippet.replaceAll("\\$\\{\\d+:([^}]*)}", "$1").replaceAll("\\$\\{\\d+\\|([^,}|]*)[^}]*}", "$1").replaceAll("\\$\\{?\\d+}?", "");
-        return s.replace("\\$", "$").replace("\\}", "}");
+        StringBuilder out = new StringBuilder();
+        flatten(snippet, 0, snippet.length(), out);
+        return out.toString();
+    }
+
+    private static void flatten(String s, int from, int to, StringBuilder out) {
+        int i = from;
+        while (i < to) {
+            char c = s.charAt(i);
+            if (c == '\\' && i + 1 < to && "$}\\,|".indexOf(s.charAt(i + 1)) >= 0) { out.append(s.charAt(i + 1)); i += 2; continue; }
+            if (c != '$' || i + 1 >= to) { out.append(c); i++; continue; }
+            char next = s.charAt(i + 1);
+            if (next == '{') {
+                int close = matchingBrace(s, i + 1, to);
+                if (close < 0) { out.append(c); i++; continue; }
+                flattenBraced(s, i + 2, close, out);
+                i = close + 1;
+            } else if (Character.isDigit(next)) {
+                i += 1;
+                while (i < to && Character.isDigit(s.charAt(i))) i++;
+            } else if (Character.isLetter(next) || next == '_') {
+                i += 1;
+                while (i < to && (Character.isLetterOrDigit(s.charAt(i)) || s.charAt(i) == '_')) i++;
+            } else { out.append(c); i++; }
+        }
+    }
+
+    /** Index of the brace closing the one at {@code open}, honouring escapes and nesting; -1 when it never closes. */
+    private static int matchingBrace(String s, int open, int to) {
+        int depth = 0;
+        for (int i = open; i < to; i++) {
+            char c = s.charAt(i);
+            if (c == '\\') { i++; continue; }
+            if (c == '{') depth++;
+            else if (c == '}' && --depth == 0) return i;
+        }
+        return -1;
+    }
+
+    private static void flattenBraced(String s, int from, int to, StringBuilder out) {
+        int i = from;
+        while (i < to && (Character.isLetterOrDigit(s.charAt(i)) || s.charAt(i) == '_')) i++;
+        if (i == from) { out.append("${"); flatten(s, from, to, out); out.append('}'); return; } // not a tabstop or variable: keep it
+        if (i == to) return; // ${1} or ${NAME}
+        char kind = s.charAt(i);
+        if (kind == ':') flatten(s, i + 1, to, out);
+        else if (kind == '|' && s.charAt(to - 1) == '|') {
+            int end = i + 1;
+            while (end < to - 1 && !(s.charAt(end) == ',' && s.charAt(end - 1) != '\\')) end++;
+            flatten(s, i + 1, Math.min(end, to - 1), out);
+        } else { out.append("${"); flatten(s, from, to, out); out.append('}'); }
     }
 
     /**

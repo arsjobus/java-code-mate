@@ -39,11 +39,17 @@ public final class Themes {
     }
 
     /** Built-ins followed by the custom themes found in {@code themesDirectory}, which may not exist. */
-    public static List<Theme> available(Path themesDirectory) {
+    public static List<Theme> available(Path themesDirectory) { return available(themesDirectory, Files::list, Files::newInputStream); }
+
+    /** File-system access, injectable so unreadable folders and stylesheets can be simulated in tests. */
+    interface Lister { Stream<Path> list(Path directory) throws IOException; }
+    interface Opener { InputStream open(Path file) throws IOException; }
+
+    static List<Theme> available(Path themesDirectory, Lister lister, Opener opener) {
         List<Theme> themes = new ArrayList<>(builtIn());
         if (themesDirectory == null || !Files.isDirectory(themesDirectory)) return themes;
         List<Path> sheets;
-        try (Stream<Path> files = Files.list(themesDirectory)) {
+        try (Stream<Path> files = lister.list(themesDirectory)) {
             sheets = files.filter(Files::isRegularFile)
                 .filter(p -> p.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".css"))
                 .sorted(Comparator.comparing(p -> p.getFileName().toString().toLowerCase(Locale.ROOT)))
@@ -55,7 +61,7 @@ public final class Themes {
             String file = sheet.getFileName().toString();
             String id = file.substring(0, file.length() - ".css".length());
             if (id.isBlank() || themes.stream().anyMatch(t -> t.id().equalsIgnoreCase(id))) continue;
-            boolean dark = declaresDarkBase(sheet);
+            boolean dark = declaresDarkBase(sheet, opener);
             List<String> classes = dark ? List.of("theme-dark", "theme-custom") : List.of("theme-custom");
             themes.add(new Theme(id, id, dark, classes, sheet.toAbsolutePath().normalize()));
         }
@@ -69,8 +75,8 @@ public final class Themes {
         return themes.get(0);
     }
 
-    private static boolean declaresDarkBase(Path sheet) {
-        try (InputStream in = Files.newInputStream(sheet)) {
+    private static boolean declaresDarkBase(Path sheet, Opener opener) {
+        try (InputStream in = opener.open(sheet)) {
             String head = new String(in.readNBytes(1024), StandardCharsets.UTF_8);
             return BASE_DARK.matcher(head).find();
         } catch (IOException | RuntimeException ex) {

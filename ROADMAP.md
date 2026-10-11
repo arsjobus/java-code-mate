@@ -84,13 +84,15 @@
 
 ## v0.9 — Hardening
 
-- [ ] Crash recovery
-- [ ] Large-file testing
-- [ ] Performance profiling
-- [ ] Offline testing
-- [ ] Privacy audit
-- [ ] Dependency audit
-- [ ] End-to-end tests
+- [x] Crash recovery
+- [x] Large-file testing
+- [x] Performance profiling
+- [x] Offline testing
+- [x] Privacy audit
+- [x] Dependency audit
+- [x] End-to-end tests
+
+See [HARDENING.md](HARDENING.md) for what each item covers, how it is verified, and what it found.
 
 ## v1.0 — Dependable tool
 

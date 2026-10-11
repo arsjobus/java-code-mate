@@ -97,13 +97,20 @@ public final class Keybindings {
         return text.toString();
     }
 
-    /** A canonical form for comparing shortcuts: case-insensitive, modifiers in a fixed order. Empty for "no shortcut". */
+    /**
+     * A canonical form for comparing shortcuts: case-insensitive, modifiers in a fixed order. Empty for "no shortcut".
+     * A literal plus key is written {@code Ctrl++} (or {@code Ctrl+Plus}); both normalize to {@code CTRL+PLUS}.
+     */
     public static String normalize(String binding) {
         if (binding == null || binding.isBlank() || binding.strip().equalsIgnoreCase(NONE)) return "";
+        String text = binding.strip();
+        boolean plusKey = text.equals("+") || text.endsWith("++");
+        if (plusKey) text = text.substring(0, text.length() - 1);
         boolean ctrl = false, shift = false, alt = false, meta = false, shortcut = false;
-        String key = "";
-        for (String raw : binding.split("\\+")) {
+        String key = plusKey ? "PLUS" : "";
+        for (String raw : text.split("\\+")) {
             String token = raw.strip().toUpperCase(Locale.ROOT).replace(' ', '_');
+            if (token.isEmpty()) continue;
             switch (token) {
                 case "CTRL", "CONTROL" -> ctrl = true;
                 case "SHIFT" -> shift = true;
@@ -113,12 +120,13 @@ public final class Keybindings {
                 default -> key = token.length() == 1 && Character.isDigit(token.charAt(0)) ? "DIGIT" + token : token;
             }
         }
-        StringBuilder text = new StringBuilder();
-        if (ctrl) text.append("CTRL+");
-        if (shift) text.append("SHIFT+");
-        if (alt) text.append("ALT+");
-        if (meta) text.append("META+");
-        if (shortcut) text.append("SHORTCUT+");
-        return text.append(key).toString();
+        List<String> parts = new ArrayList<>();
+        if (ctrl) parts.add("CTRL");
+        if (shift) parts.add("SHIFT");
+        if (alt) parts.add("ALT");
+        if (meta) parts.add("META");
+        if (shortcut) parts.add("SHORTCUT");
+        if (!key.isEmpty()) parts.add(key);
+        return String.join("+", parts);
     }
 }

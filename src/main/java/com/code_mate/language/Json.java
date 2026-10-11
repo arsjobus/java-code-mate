@@ -12,6 +12,9 @@ import java.util.Map;
  * plus {@code String}, {@code Boolean} and {@code null}.
  */
 public final class Json {
+    /** Nesting limit for both parsing and writing. Real protocol messages are a handful of levels deep; anything past this is hostile or cyclic. */
+    static final int MAX_DEPTH = 256;
+
     private Json() {}
 
     public static Object parse(String text) {
@@ -31,7 +34,7 @@ public final class Json {
 
     public static String write(Object value) {
         StringBuilder out = new StringBuilder();
-        write(value, out);
+        write(value, out, 0);
         return out.toString();
     }
 
@@ -53,7 +56,8 @@ public final class Json {
 
     // ---- writer ----
 
-    private static void write(Object value, StringBuilder out) {
+    private static void write(Object value, StringBuilder out, int depth) {
+        if (depth > MAX_DEPTH) throw new IllegalArgumentException("Value is nested more than " + MAX_DEPTH + " levels deep (or contains a cycle)");
         if (value == null) out.append("null");
         else if (value instanceof String s) writeString(s, out);
         else if (value instanceof Boolean || value instanceof Integer || value instanceof Long) out.append(value);
@@ -68,13 +72,13 @@ public final class Json {
                 first = false;
                 writeString(String.valueOf(e.getKey()), out);
                 out.append(':');
-                write(e.getValue(), out);
+                write(e.getValue(), out, depth + 1);
             }
             out.append('}');
         } else if (value instanceof Iterable<?> items) {
             out.append('[');
             boolean first = true;
-            for (Object item : items) { if (!first) out.append(','); first = false; write(item, out); }
+            for (Object item : items) { if (!first) out.append(','); first = false; write(item, out, depth + 1); }
             out.append(']');
         } else throw new IllegalArgumentException("Cannot write " + value.getClass());
     }
@@ -102,6 +106,7 @@ public final class Json {
     private static final class Parser {
         private final String text;
         private int pos;
+        private int depth;
 
         Parser(String text) { this.text = text; }
 
@@ -132,11 +137,14 @@ public final class Json {
             return result;
         }
 
+        private void enter() { if (++depth > MAX_DEPTH) throw error("Nested more than " + MAX_DEPTH + " levels deep"); }
+
         private Map<String, Object> object() {
+            enter();
             Map<String, Object> map = new LinkedHashMap<>();
             pos++;
             skipSpace();
-            if (peek() == '}') { pos++; return map; }
+            if (peek() == '}') { pos++; depth--; return map; }
             while (true) {
                 skipSpace();
                 if (peek() != '"') throw error("Expected object key");
@@ -148,22 +156,23 @@ public final class Json {
                 skipSpace();
                 char c = peek();
                 pos++;
-                if (c == '}') return map;
+                if (c == '}') { depth--; return map; }
                 if (c != ',') throw error("Expected ',' or '}'");
             }
         }
 
         private List<Object> array() {
+            enter();
             List<Object> list = new ArrayList<>();
             pos++;
             skipSpace();
-            if (peek() == ']') { pos++; return list; }
+            if (peek() == ']') { pos++; depth--; return list; }
             while (true) {
                 list.add(value());
                 skipSpace();
                 char c = peek();
                 pos++;
-                if (c == ']') return list;
+                if (c == ']') { depth--; return list; }
                 if (c != ',') throw error("Expected ',' or ']'");
             }
         }

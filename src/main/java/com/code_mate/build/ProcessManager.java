@@ -23,9 +23,17 @@ public final class ProcessManager {
         void onExit(ManagedProcess process, int exitCode);
     }
 
+    /** Starts processes; injectable so tests can simulate failures a real process rarely produces. */
+    interface Launcher { Process start(ProcessBuilder builder) throws IOException; }
+
     private static final long GRACE_MILLIS = 3000;
+    private final Launcher launcher;
     private final AtomicLong ids = new AtomicLong();
     private final Map<Long, ManagedProcess> running = new ConcurrentHashMap<>();
+
+    public ProcessManager() { this(ProcessBuilder::start); }
+
+    ProcessManager(Launcher launcher) { this.launcher = launcher; }
 
     public ManagedProcess start(String name, List<String> command, File directory, Listener listener) throws IOException {
         return start(name, command, directory, Map.of(), listener);
@@ -36,7 +44,7 @@ public final class ProcessManager {
         ProcessBuilder builder = new ProcessBuilder(command).redirectErrorStream(true);
         builder.environment().putAll(environment);
         if (directory != null) builder.directory(directory);
-        Process process = builder.start();
+        Process process = launcher.start(builder);
         ManagedProcess managed = new ManagedProcess(ids.incrementAndGet(), name, command, directory, process);
         running.put(managed.id(), managed);
         Thread reader = new Thread(() -> pump(managed, listener), "process-" + managed.id());
@@ -48,14 +56,18 @@ public final class ProcessManager {
     private void pump(ManagedProcess managed, Listener listener) {
         try (BufferedReader in = new BufferedReader(new InputStreamReader(managed.process().getInputStream(), StandardCharsets.UTF_8))) {
             String line;
-            while ((line = in.readLine()) != null) listener.onLine(managed, Ansi.strip(line));
+            while ((line = in.readLine()) != null) {
+                // A misbehaving listener must not stop the pump: the process would never be reaped, never reported
+                // as exited, and would stay in running() forever (and block on a full pipe).
+                try { listener.onLine(managed, Ansi.strip(line)); } catch (RuntimeException ignored) { }
+            }
         } catch (IOException ignored) {
             // The stream closes when the process is destroyed.
         }
         int code;
         try { code = managed.process().waitFor(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); code = -1; }
         running.remove(managed.id());
-        listener.onExit(managed, code);
+        try { listener.onExit(managed, code); } catch (RuntimeException ignored) { }
     }
 
     public List<ManagedProcess> running() {
@@ -99,8 +111,8 @@ public final class ProcessManager {
         for (ProcessHandle child : targets) {
             if (ShellCommand.isWindows()) { if (child.destroy()) signalled++; continue; }
             try {
-                Process kill = new ProcessBuilder("kill", "-INT", Long.toString(child.pid()))
-                    .redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.DISCARD).start();
+                Process kill = launcher.start(new ProcessBuilder("kill", "-INT", Long.toString(child.pid()))
+                    .redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.DISCARD));
                 if (kill.waitFor(2, TimeUnit.SECONDS) && kill.exitValue() == 0) signalled++;
             } catch (IOException ignored) {
                 // No kill binary available; nothing more we can do.

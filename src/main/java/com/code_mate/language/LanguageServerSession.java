@@ -241,8 +241,17 @@ public final class LanguageServerSession {
 
     private void onConnectionClosed(Throwable reason) {
         ready.completeExceptionally(new IllegalStateException("The " + languageId + " language server stopped."));
-        if (!stopping) onLog.accept("[" + languageId + "] language server exited" + (process != null && !process.isAlive() ? " with code " + process.exitValue() : ""));
+        if (!stopping) onLog.accept("[" + languageId + "] language server exited" + exitDescription());
         onExit.accept(this);
+    }
+
+    /** The connection usually closes a moment before the process is reapable, so give the exit code a short chance to appear. */
+    String exitDescription() {
+        if (process == null) return "";
+        try {
+            if (process.waitFor(1, TimeUnit.SECONDS)) return " with code " + process.exitValue();
+        } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+        return "";
     }
 
     // ---- shutdown ----
@@ -260,18 +269,25 @@ public final class LanguageServerSession {
         stopping = true;
         if (process == null) return;
         if (isReady()) {
-            try { rpc.request("shutdown", null).get(1500, TimeUnit.MILLISECONDS); } catch (Exception ignored) { }
+            try { rpc.request("shutdown", null).get(1500, TimeUnit.MILLISECONDS); }
+            catch (InterruptedException e) { Thread.currentThread().interrupt(); } // keep the flag; the wait below then fails fast and kills
+            catch (Exception ignored) { /* an unresponsive or failing server is stopped below anyway */ }
             rpc.notify("exit", null);
         }
         rpc.close();
         process.descendants().forEach(ProcessHandle::destroy);
         process.destroy();
         try {
-            if (!process.waitFor(2, TimeUnit.SECONDS)) {
-                process.descendants().forEach(ProcessHandle::destroyForcibly);
-                process.destroyForcibly();
-            }
-        } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            if (!process.waitFor(2, TimeUnit.SECONDS)) forceKill();
+        } catch (InterruptedException e) {
+            forceKill(); // being interrupted must never leave a server running
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private void forceKill() {
+        process.descendants().forEach(ProcessHandle::destroyForcibly);
+        process.destroyForcibly();
     }
 
     private static String message(Throwable error) {

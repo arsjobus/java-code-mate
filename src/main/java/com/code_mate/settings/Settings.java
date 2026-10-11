@@ -1,11 +1,10 @@
 package com.code_mate.settings;
 
+import com.code_mate.io.FileIO;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -163,18 +162,7 @@ public final class Settings {
         }
         for (Map.Entry<String, String> entry : values.entrySet()) if (written.add(entry.getKey())) out.add(entry.getKey() + "=" + entry.getValue());
 
-        Files.createDirectories(file.getParent());
-        Path temp = Files.createTempFile(file.getParent(), file.getFileName().toString(), ".tmp");
-        try {
-            Files.writeString(temp, out.isEmpty() ? "" : String.join("\n", out) + "\n", StandardCharsets.UTF_8);
-            try {
-                Files.move(temp, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-            } catch (AtomicMoveNotSupportedException ex) {
-                Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING);
-            }
-        } finally {
-            Files.deleteIfExists(temp);
-        }
+        FileIO.writeAtomic(file, out.isEmpty() ? "" : String.join("\n", out) + "\n");
     }
 
     private Map<String, String> target(Scope scope) { return scope == Scope.USER ? user : project; }

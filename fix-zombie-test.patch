@@ -1,0 +1,49 @@
+diff --git a/src/test/java/com/code_mate/build/ProcessManagerTest.java b/src/test/java/com/code_mate/build/ProcessManagerTest.java
+index 639ddee..1a36cf5 100644
+--- a/src/test/java/com/code_mate/build/ProcessManagerTest.java
++++ b/src/test/java/com/code_mate/build/ProcessManagerTest.java
+@@ -137,16 +137,23 @@ class ProcessManagerTest {
+         assertTrue(waitExit());
+     }
+ 
+-    @Test void finishedBackgroundJobsAreNotReportedAsChildren() throws Exception {
+-        ManagedProcess shell = manager.start("sh", ShellCommand.interactive(), dir.toFile(), listener);
+-        shell.send("true &");
+-        Thread.sleep(500); // the job has finished, but an idle dash does not reap it until its next command
+-        assertTrue(shell.children().isEmpty(), "a zombie is not a running child: " + shell.children());
+-        assertTrue(shell.process().children().count() <= 1);
+-        shell.send("sleep 30 &");
++    /**
++     * A process with a zombie child on any shell: {@code true &} forks a child, then the shell {@code exec}s into
++     * {@code sleep}, which never waits for it. (A plain idle dash leaves such a zombie, but bash, the macOS /bin/sh,
++     * reaps background jobs at once, so relying on the shell's own behaviour is not portable.)
++     */
++    private ManagedProcess processWithZombieChild() throws Exception {
++        ManagedProcess parent = manager.start("zombie-parent", ShellCommand.wrap("true & exec sleep 30"), dir.toFile(), listener);
+         long deadline = System.currentTimeMillis() + 10_000;
+-        while (shell.children().isEmpty() && System.currentTimeMillis() < deadline) Thread.sleep(20);
+-        assertEquals(1, shell.children().size());
++        while (parent.process().children().findAny().isEmpty() && System.currentTimeMillis() < deadline) Thread.sleep(20);
++        Thread.sleep(200); // let the child finish and become a zombie
++        assertEquals(1, parent.process().children().count(), "the finished child must still be listed by the OS");
++        return parent;
++    }
++
++    @Test void finishedBackgroundJobsAreNotReportedAsChildren() throws Exception {
++        ManagedProcess parent = processWithZombieChild();
++        assertTrue(parent.children().isEmpty(), "a zombie is not a running child: " + parent.children());
+     }
+ 
+     @Test void zombieDetectionIsFalseForLiveUnknownAndWindowsProcesses() throws Exception {
+@@ -155,10 +162,7 @@ class ProcessManagerTest {
+         Path noProc = dir.resolve("no-proc"); // forces the `ps` fallback used on macOS
+         assertFalse(ManagedProcess.isZombie(noProc, ProcessHandle.current().pid()));
+         assertFalse(ManagedProcess.isZombie(noProc, Integer.MAX_VALUE - 7));
+-        ManagedProcess shell = manager.start("sh", ShellCommand.interactive(), dir.toFile(), listener);
+-        shell.send("true &");
+-        Thread.sleep(500);
+-        long zombie = shell.process().children().findFirst().orElseThrow().pid();
++        long zombie = processWithZombieChild().process().children().findFirst().orElseThrow().pid();
+         assertTrue(ManagedProcess.isZombie(zombie));
+         assertTrue(ManagedProcess.isZombie(noProc, zombie));
+         Path fakeProc = dir.resolve("fake-proc");
