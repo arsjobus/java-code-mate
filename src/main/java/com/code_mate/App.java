@@ -1,6 +1,7 @@
 package com.code_mate;
 
 import com.code_mate.build.BuildSystem;
+import com.code_mate.editor.Indentation;
 import com.code_mate.editor.SyntaxHighlighter;
 import com.code_mate.io.CrashLog;
 import com.code_mate.io.FileIO;
@@ -503,6 +504,12 @@ public final class App extends Application {
         CodeArea editor = new CodeArea();
         applyEditorPreferences(editor);
         editor.setOnKeyPressed(this::handleKeyPressed);
+        // Filters, not handlers: they must run before RichTextFX's own key handling, and Tab also arrives as a separate
+        // KEY_TYPED event with "\t" that consuming KEY_PRESSED does not stop - it would add a stray tab character.
+        editor.addEventFilter(KeyEvent.KEY_PRESSED, this::handleTab);
+        editor.addEventFilter(KeyEvent.KEY_TYPED, e -> {
+            if (swallowTypedTab && "\t".equals(e.getCharacter())) { swallowTypedTab = false; e.consume(); }
+        });
         editor.addEventHandler(KeyEvent.KEY_TYPED, e -> {
             if (hasExtraCarets(editor) && !e.getCharacter().isEmpty() && !e.isControlDown() && !e.isAltDown()) {
                 List<Integer> positions = extraCarets.get(editor).stream().map(CaretNode::getPosition).sorted(Comparator.reverseOrder()).toList();
@@ -513,6 +520,25 @@ public final class App extends Application {
         return editor;
     }
 
+    private boolean swallowTypedTab;
+
+    /** Tab inserts spaces/a tab or indents the selected lines; Shift+Tab outdents them (see {@link Indentation}). */
+    private void handleTab(KeyEvent e) {
+        swallowTypedTab = false;
+        if (!(e.getSource() instanceof CodeArea editor) || e.getCode() != KeyCode.TAB) return;
+        if (e.isControlDown() || e.isAltDown() || e.isMetaDown() || hasExtraCarets(editor)) return;
+        IndexRange selection = editor.getSelection();
+        String text = editor.getText();
+        Indentation.Edit edit = e.isShiftDown()
+            ? Indentation.outdent(text, selection.getStart(), selection.getEnd(), editorPrefs.tabSize())
+            : Indentation.tab(text, selection.getStart(), selection.getEnd(), editorPrefs.tabSize(), editorPrefs.insertSpaces());
+        if (!edit.isNoOp()) {
+            editor.replaceText(edit.start(), edit.end(), edit.replacement());
+            editor.selectRange(edit.selectionStart(), edit.selectionEnd());
+        }
+        swallowTypedTab = true; e.consume();
+    }
+
     private void handleKeyPressed(KeyEvent e) {
         if (!(e.getSource() instanceof CodeArea editor)) return;
         if (e.getCode() == KeyCode.ENTER && editorPrefs.autoIndent()) {
@@ -521,10 +547,6 @@ public final class App extends Application {
             String trimmed = line.stripTrailing();
             if (trimmed.endsWith("{") || trimmed.endsWith("[") || trimmed.endsWith("(")) indent += editorPrefs.indentUnit();
             editor.insertText(editor.getCaretPosition(), "\n" + indent); e.consume();
-        } else if (e.getCode() == KeyCode.TAB && editorPrefs.insertSpaces() && !e.isShiftDown() && !e.isControlDown() && !e.isAltDown() && !e.isMetaDown() && !hasExtraCarets(editor)) {
-            int tab = editorPrefs.tabSize();
-            int column = editor.getSelection().getLength() == 0 ? editor.getCaretColumn() : 0; // pad to the next tab stop
-            editor.replaceSelection(" ".repeat(tab - column % tab)); e.consume();
         } else if ((e.getCode() == KeyCode.BACK_SPACE || e.getCode() == KeyCode.DELETE) && hasExtraCarets(editor)) {
             boolean back = e.getCode() == KeyCode.BACK_SPACE;
             List<Integer> positions = extraCarets.get(editor).stream().map(CaretNode::getPosition).sorted(Comparator.reverseOrder()).toList();
@@ -1158,7 +1180,7 @@ public final class App extends Application {
         }
         status.setText("Renamed " + oldName + " to " + newName + " (" + total + " edit(s), unsaved)");
     }
-
+ 
     /** Replaces a range but leaves untouched the leading and trailing text that is identical, so whole-file edits stay small. */
     private void replaceMinimal(CodeArea editor, int start, int end, String replacement) {
         String old = editor.getText(start, end);

@@ -76,6 +76,7 @@ Writing the tests exposed real defects, all fixed in this release and covered by
 - **LSP snippets.** `\$5` lost its text, and nested placeholders left stray braces.
 - **Language servers.** Stopping from an interrupted thread swallowed the interrupt and could leave the server running; the "server exited" log line sometimes omitted the exit code.
 - **Process pump.** An exception thrown by an output listener stopped the pump, so the process was never reaped and never reported as exited.
+- **Tab key.** With `editor.insertSpaces=true` Tab inserted spaces *and* a stray `\t`: JavaFX delivers Tab as a separate `KEY_TYPED` event that consuming `KEY_PRESSED` does not stop. Tab/Shift+Tab are now handled by `editor/Indentation` (pure text edits, fully tested) and the stray typed `\t` is swallowed. Tab on a multi-line selection indents every line; Shift+Tab outdents the selected lines (or the caret's line). The key wiring itself lives in the untested UI layer, so smoke-check it: with 2-space indentation press Tab (exactly two spaces, no tab character), select several lines and press Tab, then Shift+Tab.
 
 ## Known limits
 
