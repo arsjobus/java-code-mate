@@ -6,7 +6,7 @@ The editor is designed to be a tool for making software, not a platform for cons
 
 ## Current status
 
-Roadmap progress is tracked in `ROADMAP.md`; v0.4 (build and run) is the latest milestone.
+Roadmap progress is tracked in `ROADMAP.md`; v0.9 (build and run) is the latest milestone. Note: v0.6 & v0.7 deferred maybe skipped to keep this IDE simple.
 
 Included:
 - Maven build
@@ -66,7 +66,7 @@ mvn clean package
 ## Project structure
 
 ```text
-intentional-code-editor/
+java-code-mate/
 ├── pom.xml
 ├── README.md
 ├── PRINCIPLES.md
