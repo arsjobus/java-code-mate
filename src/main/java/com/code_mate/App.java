@@ -1010,13 +1010,13 @@ public final class App extends Application {
         ButtonType restore = new ButtonType("Restore"), discard = new ButtonType("Discard");
         alert.getButtonTypes().setAll(restore, discard);
         if (alert.showAndWait().orElse(discard) != restore) { recovery.clear(); return; }
-        for (RecoveryStore.Snapshot snapshot : leftovers) restoreSnapshot(snapshot);
+        for (RecoveryStore.Snapshot snapshot : leftovers.stream().sorted(RecoveryStore.TAB_ORDER).toList()) restoreSnapshot(snapshot); // tabs come back in their old order
         status.setText("Restored " + leftovers.size() + (leftovers.size() == 1 ? " unsaved document" : " unsaved documents"));
     }
 
     private void restoreSnapshot(RecoveryStore.Snapshot snapshot) {
         File original = snapshot.original() == null ? null : snapshot.original().toFile();
-        CodeArea editor = createEditor(); editor.replaceText(snapshot.text()); editor.moveTo(0);
+        CodeArea editor = createEditor(); editor.replaceText(snapshot.text()); editor.moveTo(snapshot.caret());
         Tab tab = createTab(original == null ? "Untitled" : original.getName(), editor, original);
         tabs.getTabs().add(tab);
         dirty.put(tab, true); updateTabTitle(tab);
@@ -1025,6 +1025,7 @@ public final class App extends Application {
             status.setText(original.getName() + " changed on disk after this copy was made; check before saving over it.");
         tabs.getSelectionModel().select(tab);
         highlight(editor);
+        editor.requestFollowCaret(); // scroll to where the cursor was
     }
 
     private void snapshotDirtyTabs() {
@@ -1034,7 +1035,8 @@ public final class App extends Application {
             String id = recoveryIds.computeIfAbsent(tab, t -> RecoveryStore.newId());
             File file = (File) tab.getUserData();
             String text = editor.getText();
-            recoveryWriter.execute(() -> { try { recovery.saveIfChanged(id, file == null ? null : file.toPath(), text); } catch (IOException ignored) { /* retried on the next tick */ } });
+            int caret = editor.getCaretPosition(), tabIndex = tabs.getTabs().indexOf(tab);
+            recoveryWriter.execute(() -> { try { recovery.saveIfChanged(id, file == null ? null : file.toPath(), text, caret, tabIndex); } catch (IOException ignored) { /* retried on the next tick */ } });
         }
     }
 

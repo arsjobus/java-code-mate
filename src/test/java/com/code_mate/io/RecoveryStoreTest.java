@@ -180,6 +180,109 @@ class RecoveryStoreTest {
         assertEquals("no permissions API", plain.pending().get(0).text());
     }
 
+    // ---- cursor position and tab order (BUGS.md: crash recovery used to restore only the text) ----
+
+    @Test void theCursorPositionSurvivesTheStoreThatWroteIt() throws IOException {
+        store.saveIfChanged("a", null, "line one\nline two", 12, 3);
+        Snapshot found = new RecoveryStore(dir.resolve("recovery")).pending().get(0);
+        assertEquals(12, found.caret());
+        assertEquals(3, found.tabIndex());
+        assertEquals("line one\nline two", found.text());
+    }
+
+    @Test void movingOnlyTheCursorOrTheTabIsAChangeButRepeatingThemIsNot() throws IOException {
+        assertTrue(store.saveIfChanged("a", null, "text", 1, 0));
+        assertFalse(store.saveIfChanged("a", null, "text", 1, 0));
+        assertTrue(store.saveIfChanged("a", null, "text", 2, 0), "cursor moved");
+        assertTrue(store.saveIfChanged("a", null, "text", 2, 1), "tab moved");
+        assertEquals(2, store.pending().get(0).caret());
+        assertEquals(1, store.pending().get(0).tabIndex());
+    }
+
+    @Test void theThreeArgumentSaveStillWorksAndMeansNoKnownPosition() throws IOException {
+        store.saveIfChanged("a", null, "text");
+        Snapshot found = store.pending().get(0);
+        assertEquals(0, found.caret());
+        assertEquals(-1, found.tabIndex());
+    }
+
+    @Test void anOutOfRangeCursorIsClampedIntoTheText() throws IOException {
+        store.saveIfChanged("big", null, "abc", 99, 0);
+        store.saveIfChanged("neg", null, "abc", -5, 0);
+        store.saveIfChanged("end", null, "abc", 3, 0);
+        store.saveIfChanged("empty", null, "", 7, 0);
+        java.util.Map<String, Integer> carets = new java.util.HashMap<>();
+        for (Snapshot s : store.pending()) carets.put(s.id(), s.caret());
+        assertEquals(3, carets.get("big"));
+        assertEquals(0, carets.get("neg"));
+        assertEquals(3, carets.get("end"), "the very end of the text is a valid cursor position");
+        assertEquals(0, carets.get("empty"));
+    }
+
+    @Test void theCursorNeverLandsInsideASurrogatePair() throws IOException {
+        String text = "a\uD83D\uDE00b"; // a, one emoji (two chars), b
+        store.saveIfChanged("a", null, text, 2, 0); // offset 2 is between the emoji's two halves
+        assertEquals(1, store.pending().get(0).caret());
+    }
+
+    @Test void aDamagedCursorOrTabLineNeverCostsTheText() throws IOException {
+        Files.createDirectories(store.directory());
+        Files.writeString(store.directory().resolve("badcaret.recovery"), "code-mate-recovery 1\noriginal=\nsaved=1\ncaret=oops\ntab=zzz\nbytes=4\n\nwork");
+        Files.writeString(store.directory().resolve("hugecaret.recovery"), "code-mate-recovery 1\noriginal=\nsaved=2\ncaret=99999999999\ntab=-9\nbytes=4\n\nwork");
+        List<Snapshot> found = store.pending();
+        assertEquals(2, found.size());
+        for (Snapshot s : found) {
+            assertEquals("work", s.text());
+            assertEquals(0, s.caret());
+            assertEquals(-1, s.tabIndex());
+        }
+    }
+
+    @Test void snapshotsFromBeforeCursorTrackingStillLoad() throws IOException {
+        Files.createDirectories(store.directory());
+        Files.writeString(store.directory().resolve("old.recovery"), "code-mate-recovery 1\noriginal=\nsaved=5\nbytes=4\n\nwork");
+        Snapshot found = store.pending().get(0);
+        assertEquals("work", found.text());
+        assertEquals(0, found.caret());
+        assertEquals(-1, found.tabIndex());
+    }
+
+    @Test void aSnapshotWithAnUnknownHeaderLineIsSkippedNotDeleted() throws IOException {
+        Files.createDirectories(store.directory());
+        Path f = store.directory().resolve("odd.recovery");
+        Files.writeString(f, "code-mate-recovery 1\noriginal=\nsaved=5\nmystery=1\nbytes=4\n\nwork");
+        Files.writeString(store.directory().resolve("swapped.recovery"), "code-mate-recovery 1\noriginal=\nsaved=5\ntab=1\ncaret=2\nbytes=4\n\nwork");
+        assertTrue(store.pending().isEmpty());
+        assertTrue(Files.exists(f));
+    }
+
+    @Test void restoreOrderFollowsTheOldTabOrderNotTheWriteOrder() throws Exception {
+        store.saveIfChanged("third", null, "3", 0, 2);
+        Thread.sleep(15);
+        store.saveIfChanged("first", null, "1", 0, 0);
+        Thread.sleep(15);
+        store.saveIfChanged("second", null, "2", 0, 1);
+        assertEquals(List.of("third", "first", "second"), store.pending().stream().map(Snapshot::id).toList(), "pending() stays oldest first");
+        assertEquals(List.of("first", "second", "third"), store.pending().stream().sorted(RecoveryStore.TAB_ORDER).map(Snapshot::id).toList());
+    }
+
+    @Test void snapshotsWithoutATabPositionRestoreLastAndOldestFirst() throws Exception {
+        store.saveIfChanged("unknown-old", null, "x");
+        Thread.sleep(15);
+        store.saveIfChanged("unknown-new", null, "y");
+        Thread.sleep(15);
+        store.saveIfChanged("tab-5", null, "z", 0, 5);
+        assertEquals(List.of("tab-5", "unknown-old", "unknown-new"), store.pending().stream().sorted(RecoveryStore.TAB_ORDER).map(Snapshot::id).toList());
+    }
+
+    @Test void theCompatibilityConstructorHasNoPosition() {
+        Snapshot s = new Snapshot("id", null, Instant.EPOCH, "abc");
+        assertEquals(0, s.caret());
+        assertEquals(-1, s.tabIndex());
+        assertEquals(1, new Snapshot("id", null, Instant.EPOCH, "abc", 1, -7).caret());
+        assertEquals(-1, new Snapshot("id", null, Instant.EPOCH, "abc", 1, -7).tabIndex());
+    }
+
     private record FileTimeProbe(Path file, FileTime before) {
         FileTimeProbe(Path file) throws IOException { this(file, Files.getLastModifiedTime(file)); }
         boolean unchanged() throws IOException { return Files.getLastModifiedTime(file).equals(before); }

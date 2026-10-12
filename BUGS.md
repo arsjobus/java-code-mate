@@ -18,7 +18,7 @@ Known issues for the initial foundation.
 - [ ] Customization: with `editor.insertSpaces=false` the on-screen width of a tab character depends on JavaFX honoring `-fx-tab-size` in the code area; if it does not, tabs show at the default width.
 - [ ] Customization: the Settings dialog edits files on disk. If the same settings file is open in a tab with unsaved changes, saving the dialog does not update that tab.
 - [ ] Files larger than 32 MB are refused rather than opened, and files that are not UTF-8 text cannot be opened.
-- [ ] Crash recovery restores the text of unsaved tabs, not their cursor position, undo history or tab order.
+- [ ] Crash recovery restores the text, cursor position and relative order of unsaved tabs, but not their undo history, scroll position or selection; saved (unmodified) tabs are not part of recovery at all.
 - [ ] The JavaFX user interface (`App`, `ui/*`) has no automated tests; it is covered by manual and smoke checks (see HARDENING.md).
 - [ ] There is no Git integration.
 - [ ] AI integration is documentation-only at this stage.
