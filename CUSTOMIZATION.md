@@ -101,6 +101,8 @@ Ctrl+A) are not.
 | `edit.undo` | Edit > Undo | (none) |
 | `edit.redo` | Edit > Redo | (none) |
 | `edit.search` | Edit > Search | `Ctrl+F` |
+| `edit.findNext` | Edit > Find Next | `F3` |
+| `edit.findPrevious` | Edit > Find Previous | `Shift+F3` |
 | `edit.replace` | Edit > Replace | `Ctrl+H` |
 | `edit.goToLine` | Edit > Go to Line | `Ctrl+L` |
 | `edit.goToFile` | Edit > Go to File | `Ctrl+P` |

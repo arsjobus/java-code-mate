@@ -3,6 +3,7 @@ package com.code_mate;
 import com.code_mate.build.BuildSystem;
 import com.code_mate.editor.Indentation;
 import com.code_mate.editor.SyntaxHighlighter;
+import com.code_mate.editor.TextSearch;
 import com.code_mate.io.CrashLog;
 import com.code_mate.io.FileIO;
 import com.code_mate.io.ProjectFiles;
@@ -214,6 +215,8 @@ public final class App extends Application {
             bound("Edit", "Undo", "edit.undo", "", () -> currentEditor().ifPresent(CodeArea::undo)),
             bound("Edit", "Redo", "edit.redo", "", () -> currentEditor().ifPresent(CodeArea::redo)), new SeparatorMenuItem(),
             bound("Edit", "Search", "edit.search", "Ctrl+F", this::search),
+            bound("Edit", "Find Next", "edit.findNext", "F3", this::findNext),
+            bound("Edit", "Find Previous", "edit.findPrevious", "Shift+F3", this::findPrevious),
             bound("Edit", "Replace", "edit.replace", "Ctrl+H", this::replace),
             bound("Edit", "Go to Line", "edit.goToLine", "Ctrl+L", this::goToLine),
             bound("Edit", "Go to File", "edit.goToFile", "Ctrl+P", this::goToFile),
@@ -729,14 +732,43 @@ public final class App extends Application {
 
     private boolean confirmCloseDirtyTabs() { for (Tab tab : new ArrayList<>(tabs.getTabs())) if (!confirmClose(tab)) return false; return true; }
 
+    /** The text of the last Search, so Find Next / Find Previous (F3 / Shift+F3) can repeat it. */
+    private String lastSearch = "";
+
     private void search() {
         currentEditor().ifPresent(a -> {
-            TextInputDialog d = new TextInputDialog(); d.setTitle("Search"); d.setHeaderText("Find text"); d.setContentText("Search:");
+            String selected = a.getSelectedText();
+            String initial = !selected.isEmpty() && selected.indexOf('\n') < 0 ? selected : lastSearch;
+            TextInputDialog d = new TextInputDialog(initial); d.setTitle("Search"); d.setHeaderText("Find text (F3: next, Shift+F3: previous)"); d.setContentText("Search:");
             d.showAndWait().filter(s -> !s.isEmpty()).ifPresent(q -> {
-                int p = a.getText().indexOf(q, a.getCaretPosition()); if (p < 0) p = a.getText().indexOf(q);
-                if (p >= 0) { a.selectRange(p, p + q.length()); status.setText("Found: " + q); } else status.setText("Not found: " + q);
+                lastSearch = q;
+                showMatch(a, q, TextSearch.first(a.getText(), q, a.getCaretPosition()));
             });
         });
+    }
+
+    private void findNext() {
+        currentEditor().ifPresent(a -> {
+            if (lastSearch.isEmpty()) { search(); return; }
+            IndexRange sel = a.getSelection();
+            showMatch(a, lastSearch, TextSearch.next(a.getText(), lastSearch, sel.getStart(), sel.getEnd()));
+        });
+    }
+
+    private void findPrevious() {
+        currentEditor().ifPresent(a -> {
+            if (lastSearch.isEmpty()) { search(); return; }
+            showMatch(a, lastSearch, TextSearch.previous(a.getText(), lastSearch, a.getSelection().getStart()));
+        });
+    }
+
+    /** Selects the match and scrolls it into view, then gives the editor focus back (the Search dialog had it). */
+    private void showMatch(CodeArea a, String query, TextSearch.Match match) {
+        if (match == null) { status.setText("Not found: " + query); return; }
+        a.selectRange(match.start(), match.end());
+        a.requestFollowCaret(); a.requestFocus();
+        Platform.runLater(() -> { a.requestFollowCaret(); a.requestFocus(); });   // once the dialog has finished closing
+        status.setText("Found " + TextSearch.ordinal(a.getText(), query, match.start()) + " of " + TextSearch.count(a.getText(), query) + ": " + query);
     }
 
     private void replace() {
