@@ -79,12 +79,17 @@ letters, `DIGIT0`..`DIGIT9` (or just `0`..`9`), `F1`..`F12`, `COMMA`, `PERIOD`, 
 `ENTER`, `TAB`, and so on. In the dialog, any key other than a function key must be combined with Ctrl, Alt or Meta so a
 shortcut cannot swallow normal typing. Two actions with the same shortcut are reported as a problem.
 
-Example, giving Save and Save As the usual shortcuts (File actions have none by default):
+Save and Save As default to `Shortcut+S` and `Shortcut+Shift+S`: Cmd+S / Cmd+Shift+S on macOS, Ctrl+S / Ctrl+Shift+S
+on Windows and Linux. Other File actions have no shortcut by default. To use a different one, for example Ctrl+S even
+on macOS:
 
 ```
 key.file.save=Ctrl+S
 key.file.saveAs=Ctrl+Shift+S
 ```
+
+`Shortcut+S` and `Ctrl+S` count as the same shortcut off macOS (and `Shortcut+S` equals `Cmd+S` on macOS) when
+conflicts are checked.
 
 Only menu actions are rebindable. Keys handled inside the text area itself (cursor movement, Ctrl+Z, copy and paste,
 Ctrl+A) are not.
@@ -94,8 +99,8 @@ Ctrl+A) are not.
 | `file.new` | File > New | (none) |
 | `file.openFile` | File > Open File | (none) |
 | `file.openDirectory` | File > Open Directory | (none) |
-| `file.save` | File > Save | (none) |
-| `file.saveAs` | File > Save As | (none) |
+| `file.save` | File > Save | `Shortcut+S` (Cmd+S on macOS) |
+| `file.saveAs` | File > Save As | `Shortcut+Shift+S` |
 | `file.close` | File > Close | (none) |
 | `file.exit` | File > Exit | (none) |
 | `edit.undo` | Edit > Undo | (none) |

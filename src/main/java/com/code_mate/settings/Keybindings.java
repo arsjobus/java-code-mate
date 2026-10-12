@@ -15,13 +15,30 @@ public final class Keybindings {
     public static final String NONE = "none";
     public static final String PREFIX = "key.";
 
+    /** Default for File > Save: {@code Shortcut} is Cmd on macOS and Ctrl on Windows/Linux. */
+    public static final String SAVE_DEFAULT = "Shortcut+S";
+    /** Default for File > Save As. */
+    public static final String SAVE_AS_DEFAULT = "Shortcut+Shift+S";
+
     /** An action the user can bind. {@code defaultBinding} is empty when the action has no shortcut by default. */
     public record Action(String id, String label, String defaultBinding) {}
 
     private final Settings settings;
+    private final boolean mac;
     private final Map<String, Action> actions = new LinkedHashMap<>();
 
-    public Keybindings(Settings settings) { this.settings = settings; }
+    public Keybindings(Settings settings) { this(settings, isMacOs()); }
+
+    /** {@code mac} decides what {@code Shortcut} means when bindings are compared: Meta (Cmd) if true, else Ctrl. */
+    public Keybindings(Settings settings, boolean mac) {
+        this.settings = settings;
+        this.mac = mac;
+    }
+
+    /** True when running on macOS, where the platform shortcut key is Cmd rather than Ctrl. */
+    public static boolean isMacOs() {
+        return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).startsWith("mac");
+    }
 
     public void register(String id, String label, String defaultBinding) {
         actions.put(id, new Action(id, label, defaultBinding == null ? "" : defaultBinding.strip()));
@@ -55,7 +72,7 @@ public final class Keybindings {
         for (Action action : actions.values()) {
             String key = PREFIX + action.id();
             String want = wanted.getOrDefault(action.id(), action.defaultBinding());
-            if (normalize(want).equals(normalize(action.defaultBinding()))) settings.remove(Settings.Scope.USER, key);
+            if (normalize(want, mac).equals(normalize(action.defaultBinding(), mac))) settings.remove(Settings.Scope.USER, key);
             else settings.put(Settings.Scope.USER, key, want == null || want.isBlank() ? NONE : want);
         }
     }
@@ -66,7 +83,7 @@ public final class Keybindings {
         Map<String, String> spelling = new LinkedHashMap<>();
         for (Action action : actions.values()) {
             String binding = binding(action.id());
-            String normal = normalize(binding);
+            String normal = normalize(binding, mac);
             if (normal.isEmpty()) continue;
             byBinding.computeIfAbsent(normal, k -> new ArrayList<>()).add(action.id());
             spelling.putIfAbsent(normal, binding);
@@ -101,7 +118,14 @@ public final class Keybindings {
      * A canonical form for comparing shortcuts: case-insensitive, modifiers in a fixed order. Empty for "no shortcut".
      * A literal plus key is written {@code Ctrl++} (or {@code Ctrl+Plus}); both normalize to {@code CTRL+PLUS}.
      */
-    public static String normalize(String binding) {
+    public static String normalize(String binding) { return normalize(binding, null); }
+
+    /**
+     * Like {@link #normalize(String)}, but {@code Shortcut} is first resolved to the platform key: Meta when
+     * {@code mac} is true, Ctrl when false. So {@code Shortcut+S} and {@code Ctrl+S} compare equal off macOS, and
+     * {@code Shortcut+S} equals {@code Cmd+S} on macOS. With {@code mac == null} {@code Shortcut} is kept as written.
+     */
+    public static String normalize(String binding, Boolean mac) {
         if (binding == null || binding.isBlank() || binding.strip().equalsIgnoreCase(NONE)) return "";
         String text = binding.strip();
         boolean plusKey = text.equals("+") || text.endsWith("++");
@@ -119,6 +143,10 @@ public final class Keybindings {
                 case "SHORTCUT" -> shortcut = true;
                 default -> key = token.length() == 1 && Character.isDigit(token.charAt(0)) ? "DIGIT" + token : token;
             }
+        }
+        if (shortcut && mac != null) {
+            if (mac) meta = true; else ctrl = true;
+            shortcut = false;
         }
         List<String> parts = new ArrayList<>();
         if (ctrl) parts.add("CTRL");

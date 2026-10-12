@@ -205,8 +205,8 @@ public final class App extends Application {
             bound("File", "Open File...", "file.openFile", "", () -> chooseAndOpenFile(stage)),
             bound("File", "Open Directory...", "file.openDirectory", "", () -> chooseProjectDirectory(stage)),
             createRecentProjectsMenu(), new SeparatorMenuItem(),
-            bound("File", "Save", "file.save", "", () -> saveCurrent(false)),
-            bound("File", "Save As...", "file.saveAs", "", () -> saveCurrent(true)),
+            bound("File", "Save", "file.save", Keybindings.SAVE_DEFAULT, () -> saveCurrent(false)),
+            bound("File", "Save As...", "file.saveAs", Keybindings.SAVE_AS_DEFAULT, () -> saveCurrent(true)),
             bound("File", "Close", "file.close", "", this::closeCurrentTab), new SeparatorMenuItem(),
             bound("File", "Exit", "file.exit", "", () -> stage.fireEvent(new javafx.stage.WindowEvent(stage, javafx.stage.WindowEvent.WINDOW_CLOSE_REQUEST))));
 
