@@ -22,13 +22,13 @@ Open a project directory, then use the **Run** menu:
 
 | Action | Shortcut | What it does |
 | --- | --- | --- |
-| Build | Ctrl+B | Runs the detected build command (Maven, Gradle, Make, Cargo, npm) in the project directory. |
+| Build | Cmd+B (Ctrl+B on Windows/Linux) | Runs the detected build command (Maven, Gradle, Make, Cargo, npm) in the project directory. |
 | Run Command... | F5 | Shows an editable command (remembered per project), then runs it. |
-| Stop All Processes | Ctrl+. | Stops every process the editor started. |
+| Stop All Processes | Cmd+. (Ctrl+. on Windows/Linux) | Stops every process the editor started. |
 | Processes... | | Pick one running process to stop. |
 
 Output appears in the **Output** panel. Compiler diagnostics (javac, Maven, gcc-style) are collected in
-**Problems**; double-click one to jump to the line. **Terminal** (Ctrl+`) is a persistent shell fed one line
+**Problems**; double-click one to jump to the line. **Terminal** (Cmd+` on macOS, Ctrl+` elsewhere) is a persistent shell fed one line
 at a time. Toggle the bottom panel with Ctrl+J.
 
 Terminals:

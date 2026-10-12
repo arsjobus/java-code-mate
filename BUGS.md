@@ -17,7 +17,6 @@ Known issues for the initial foundation.
 - [ ] Customization: only menu actions are rebindable; keys handled by the text area itself (cursor movement, Ctrl+Z, copy/paste) are not.
 - [ ] Customization: with `editor.insertSpaces=false` the on-screen width of a tab character depends on JavaFX honoring `-fx-tab-size` in the code area; if it does not, tabs show at the default width.
 - [ ] Customization: the Settings dialog edits files on disk. If the same settings file is open in a tab with unsaved changes, saving the dialog does not update that tab.
-- [ ] Customization: only Save and Save As use the platform-aware `Shortcut+` default (Cmd on macOS, Ctrl elsewhere); every other default shortcut still uses Ctrl, and `Shortcut+` can be used in `key.*` overrides for a platform-aware binding.
 - [ ] Files larger than 32 MB are refused rather than opened, and files that are not UTF-8 text cannot be opened.
 - [ ] Crash recovery restores the text of unsaved tabs, not their cursor position, undo history or tab order.
 - [ ] The JavaFX user interface (`App`, `ui/*`) has no automated tests; it is covered by manual and smoke checks (see HARDENING.md).

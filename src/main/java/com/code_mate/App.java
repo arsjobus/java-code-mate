@@ -16,6 +16,7 @@ import com.code_mate.build.ShellCommand;
 import com.code_mate.language.Languages;
 import com.code_mate.language.LanguageService;
 import com.code_mate.language.Lsp;
+import com.code_mate.settings.DefaultShortcuts;
 import com.code_mate.settings.EditorPreferences;
 import com.code_mate.settings.Keybindings;
 import com.code_mate.settings.Settings;
@@ -205,8 +206,8 @@ public final class App extends Application {
             bound("File", "Open File...", "file.openFile", "", () -> chooseAndOpenFile(stage)),
             bound("File", "Open Directory...", "file.openDirectory", "", () -> chooseProjectDirectory(stage)),
             createRecentProjectsMenu(), new SeparatorMenuItem(),
-            bound("File", "Save", "file.save", Keybindings.SAVE_DEFAULT, () -> saveCurrent(false)),
-            bound("File", "Save As...", "file.saveAs", Keybindings.SAVE_AS_DEFAULT, () -> saveCurrent(true)),
+            bound("File", "Save", "file.save", DefaultShortcuts.SAVE, () -> saveCurrent(false)),
+            bound("File", "Save As...", "file.saveAs", DefaultShortcuts.SAVE_AS, () -> saveCurrent(true)),
             bound("File", "Close", "file.close", "", this::closeCurrentTab), new SeparatorMenuItem(),
             bound("File", "Exit", "file.exit", "", () -> stage.fireEvent(new javafx.stage.WindowEvent(stage, javafx.stage.WindowEvent.WINDOW_CLOSE_REQUEST))));
 
@@ -214,14 +215,14 @@ public final class App extends Application {
         edit.getItems().addAll(
             bound("Edit", "Undo", "edit.undo", "", () -> currentEditor().ifPresent(CodeArea::undo)),
             bound("Edit", "Redo", "edit.redo", "", () -> currentEditor().ifPresent(CodeArea::redo)), new SeparatorMenuItem(),
-            bound("Edit", "Search", "edit.search", "Ctrl+F", this::search),
-            bound("Edit", "Find Next", "edit.findNext", "F3", this::findNext),
-            bound("Edit", "Find Previous", "edit.findPrevious", "Shift+F3", this::findPrevious),
-            bound("Edit", "Replace", "edit.replace", "Ctrl+H", this::replace),
-            bound("Edit", "Go to Line", "edit.goToLine", "Ctrl+L", this::goToLine),
-            bound("Edit", "Go to File", "edit.goToFile", "Ctrl+P", this::goToFile),
-            bound("Edit", "Match Bracket", "edit.matchBracket", "Ctrl+M", this::matchBracket),
-            bound("Edit", "Add Cursor", "edit.addCursor", "Ctrl+D", this::addCursor));
+            bound("Edit", "Search", "edit.search", DefaultShortcuts.SEARCH, this::search),
+            bound("Edit", "Find Next", "edit.findNext", DefaultShortcuts.FIND_NEXT, this::findNext),
+            bound("Edit", "Find Previous", "edit.findPrevious", DefaultShortcuts.FIND_PREVIOUS, this::findPrevious),
+            bound("Edit", "Replace", "edit.replace", DefaultShortcuts.REPLACE, this::replace),
+            bound("Edit", "Go to Line", "edit.goToLine", DefaultShortcuts.GO_TO_LINE, this::goToLine),
+            bound("Edit", "Go to File", "edit.goToFile", DefaultShortcuts.GO_TO_FILE, this::goToFile),
+            bound("Edit", "Match Bracket", "edit.matchBracket", DefaultShortcuts.MATCH_BRACKET, this::matchBracket),
+            bound("Edit", "Add Cursor", "edit.addCursor", DefaultShortcuts.ADD_CURSOR, this::addCursor));
 
         Menu view = new Menu("View");
         view.getItems().addAll(
@@ -230,16 +231,16 @@ public final class App extends Application {
             bound("View", "Fold Selected", "view.fold", "", () -> currentEditor().ifPresent(CodeArea::foldSelectedParagraphs)),
             bound("View", "Unfold Current", "view.unfold", "", () -> currentEditor().ifPresent(a -> a.unfoldParagraphs(a.getCurrentParagraph()))),
             new SeparatorMenuItem(),
-            bound("View", "Toggle Bottom Panel", "view.bottomPanel", "Ctrl+J", this::toggleBottomPanel),
+            bound("View", "Toggle Bottom Panel", "view.bottomPanel", DefaultShortcuts.BOTTOM_PANEL, this::toggleBottomPanel),
             bound("View", "Output", "view.output", "", () -> showBottom(outputTab)),
             bound("View", "Problems", "view.problems", "", () -> showBottom(problemsTab)),
             bound("View", "References", "view.references", "", () -> showBottom(referencesTab)),
-            bound("View", "Terminal", "view.terminal", "Ctrl+BACK_QUOTE", () -> { showBottom(terminalTab); terminals.focusInput(); }),
-            bound("View", "New Terminal", "view.newTerminal", "Ctrl+Shift+BACK_QUOTE", () -> { showBottom(terminalTab); terminals.newTerminal(); }),
+            bound("View", "Terminal", "view.terminal", DefaultShortcuts.TERMINAL, () -> { showBottom(terminalTab); terminals.focusInput(); }),
+            bound("View", "New Terminal", "view.newTerminal", DefaultShortcuts.NEW_TERMINAL, () -> { showBottom(terminalTab); terminals.newTerminal(); }),
             new SeparatorMenuItem(),
-            bound("View", "Zoom In", "view.zoomIn", "Ctrl+EQUALS", () -> zoomEditors(1)),
-            bound("View", "Zoom Out", "view.zoomOut", "Ctrl+MINUS", () -> zoomEditors(-1)),
-            bound("View", "Reset Zoom", "view.zoomReset", "Ctrl+DIGIT0", () -> zoomEditors(0)),
+            bound("View", "Zoom In", "view.zoomIn", DefaultShortcuts.ZOOM_IN, () -> zoomEditors(1)),
+            bound("View", "Zoom Out", "view.zoomOut", DefaultShortcuts.ZOOM_OUT, () -> zoomEditors(-1)),
+            bound("View", "Reset Zoom", "view.zoomReset", DefaultShortcuts.ZOOM_RESET, () -> zoomEditors(0)),
             new SeparatorMenuItem(), themeMenu);
 
         Menu languageMenu = new Menu("Language");
@@ -247,27 +248,27 @@ public final class App extends Application {
             bound("Language", "Start Language Server...", "language.startServer", "", this::startLanguageServer),
             bound("Language", "Stop Language Server", "language.stopServer", "", this::stopLanguageServer),
             new SeparatorMenuItem(),
-            bound("Language", "Complete", "language.complete", "Ctrl+SPACE", this::complete),
-            bound("Language", "Show Hover Info", "language.hover", "Ctrl+I", this::hover),
-            bound("Language", "Signature Help", "language.signatureHelp", "Ctrl+Shift+SPACE", this::signatureHelp),
-            bound("Language", "Go to Definition", "language.goToDefinition", "F12", this::goToDefinition),
-            bound("Language", "Find References", "language.findReferences", "Shift+F12", this::findReferences),
-            bound("Language", "Document Symbols", "language.documentSymbols", "Ctrl+Shift+O", this::documentSymbols),
+            bound("Language", "Complete", "language.complete", DefaultShortcuts.COMPLETE, this::complete),
+            bound("Language", "Show Hover Info", "language.hover", DefaultShortcuts.HOVER, this::hover),
+            bound("Language", "Signature Help", "language.signatureHelp", DefaultShortcuts.SIGNATURE_HELP, this::signatureHelp),
+            bound("Language", "Go to Definition", "language.goToDefinition", DefaultShortcuts.GO_TO_DEFINITION, this::goToDefinition),
+            bound("Language", "Find References", "language.findReferences", DefaultShortcuts.FIND_REFERENCES, this::findReferences),
+            bound("Language", "Document Symbols", "language.documentSymbols", DefaultShortcuts.DOCUMENT_SYMBOLS, this::documentSymbols),
             new SeparatorMenuItem(),
-            bound("Language", "Rename Symbol...", "language.rename", "F2", this::renameSymbol),
-            bound("Language", "Format Document", "language.format", "Ctrl+Shift+F", this::formatDocument));
+            bound("Language", "Rename Symbol...", "language.rename", DefaultShortcuts.RENAME, this::renameSymbol),
+            bound("Language", "Format Document", "language.format", DefaultShortcuts.FORMAT, this::formatDocument));
 
         Menu run = new Menu("Run");
         run.getItems().addAll(
-            bound("Run", "Build", "run.build", "Ctrl+B", this::build),
-            bound("Run", "Run Command...", "run.runCommand", "F5", this::runCommandDialog),
+            bound("Run", "Build", "run.build", DefaultShortcuts.BUILD, this::build),
+            bound("Run", "Run Command...", "run.runCommand", DefaultShortcuts.RUN_COMMAND, this::runCommandDialog),
             new SeparatorMenuItem(),
-            bound("Run", "Stop All Processes", "run.stopAll", "Ctrl+PERIOD", this::stopAllProcesses),
+            bound("Run", "Stop All Processes", "run.stopAll", DefaultShortcuts.STOP_ALL, this::stopAllProcesses),
             bound("Run", "Processes...", "run.processes", "", this::showProcesses));
 
         Menu settingsMenu = new Menu("Settings");
         settingsMenu.getItems().addAll(
-            bound("Settings", "Settings...", "settings.open", "Ctrl+COMMA", this::openSettingsDialog),
+            bound("Settings", "Settings...", "settings.open", DefaultShortcuts.SETTINGS, this::openSettingsDialog),
             bound("Settings", "Project Settings...", "settings.project", "", this::openProjectSettingsDialog),
             new SeparatorMenuItem(),
             bound("Settings", "Open User Settings File", "settings.openUserFile", "", () -> openSettingsFile(Settings.Scope.USER)),
@@ -625,7 +626,7 @@ public final class App extends Application {
             if (swallowTypedTab && "\t".equals(e.getCharacter())) { swallowTypedTab = false; e.consume(); }
         });
         editor.addEventHandler(KeyEvent.KEY_TYPED, e -> {
-            if (hasExtraCarets(editor) && !e.getCharacter().isEmpty() && !e.isControlDown() && !e.isAltDown()) {
+            if (hasExtraCarets(editor) && !e.getCharacter().isEmpty() && !e.isControlDown() && !e.isAltDown() && !e.isMetaDown()) {
                 List<Integer> positions = extraCarets.get(editor).stream().map(CaretNode::getPosition).sorted(Comparator.reverseOrder()).toList();
                 for (int p : positions) editor.insertText(p, e.getCharacter());
                 clearExtraCarets(editor); e.consume();

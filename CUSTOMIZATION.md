@@ -79,9 +79,10 @@ letters, `DIGIT0`..`DIGIT9` (or just `0`..`9`), `F1`..`F12`, `COMMA`, `PERIOD`, 
 `ENTER`, `TAB`, and so on. In the dialog, any key other than a function key must be combined with Ctrl, Alt or Meta so a
 shortcut cannot swallow normal typing. Two actions with the same shortcut are reported as a problem.
 
-Save and Save As default to `Shortcut+S` and `Shortcut+Shift+S`: Cmd+S / Cmd+Shift+S on macOS, Ctrl+S / Ctrl+Shift+S
-on Windows and Linux. Other File actions have no shortcut by default. To use a different one, for example Ctrl+S even
-on macOS:
+Every default that needs a command key is written with `Shortcut+`, so it is Cmd on macOS and Ctrl on Windows and
+Linux: Save is Cmd+S / Ctrl+S, Search is Cmd+F / Ctrl+F, Build is Cmd+B / Ctrl+B, and so on. Function-key defaults (F2,
+F3, F5, F12) are the same everywhere. Other File actions have no shortcut by default. To use a different one, for
+example Ctrl+S even on macOS:
 
 ```
 key.file.save=Ctrl+S
@@ -105,41 +106,41 @@ Ctrl+A) are not.
 | `file.exit` | File > Exit | (none) |
 | `edit.undo` | Edit > Undo | (none) |
 | `edit.redo` | Edit > Redo | (none) |
-| `edit.search` | Edit > Search | `Ctrl+F` |
+| `edit.search` | Edit > Search | `Shortcut+F` |
 | `edit.findNext` | Edit > Find Next | `F3` |
 | `edit.findPrevious` | Edit > Find Previous | `Shift+F3` |
-| `edit.replace` | Edit > Replace | `Ctrl+H` |
-| `edit.goToLine` | Edit > Go to Line | `Ctrl+L` |
-| `edit.goToFile` | Edit > Go to File | `Ctrl+P` |
-| `edit.matchBracket` | Edit > Match Bracket | `Ctrl+M` |
-| `edit.addCursor` | Edit > Add Cursor | `Ctrl+D` |
+| `edit.replace` | Edit > Replace | `Shortcut+H` |
+| `edit.goToLine` | Edit > Go to Line | `Shortcut+L` |
+| `edit.goToFile` | Edit > Go to File | `Shortcut+P` |
+| `edit.matchBracket` | Edit > Match Bracket | `Shortcut+M` |
+| `edit.addCursor` | Edit > Add Cursor | `Shortcut+D` |
 | `view.focusMode` | View > Focus Mode | (none) |
 | `view.fold` | View > Fold Selected | (none) |
 | `view.unfold` | View > Unfold Current | (none) |
-| `view.bottomPanel` | View > Toggle Bottom Panel | `Ctrl+J` |
+| `view.bottomPanel` | View > Toggle Bottom Panel | `Shortcut+J` |
 | `view.output` | View > Output | (none) |
 | `view.problems` | View > Problems | (none) |
 | `view.references` | View > References | (none) |
-| `view.terminal` | View > Terminal | `Ctrl+BACK_QUOTE` |
-| `view.newTerminal` | View > New Terminal | `Ctrl+Shift+BACK_QUOTE` |
-| `view.zoomIn` | View > Zoom In | `Ctrl+EQUALS` |
-| `view.zoomOut` | View > Zoom Out | `Ctrl+MINUS` |
-| `view.zoomReset` | View > Reset Zoom | `Ctrl+DIGIT0` |
+| `view.terminal` | View > Terminal | `Shortcut+BACK_QUOTE` |
+| `view.newTerminal` | View > New Terminal | `Shortcut+Shift+BACK_QUOTE` |
+| `view.zoomIn` | View > Zoom In | `Shortcut+EQUALS` |
+| `view.zoomOut` | View > Zoom Out | `Shortcut+MINUS` |
+| `view.zoomReset` | View > Reset Zoom | `Shortcut+DIGIT0` |
 | `language.startServer` | Language > Start Language Server | (none) |
 | `language.stopServer` | Language > Stop Language Server | (none) |
-| `language.complete` | Language > Complete | `Ctrl+SPACE` |
-| `language.hover` | Language > Show Hover Info | `Ctrl+I` |
-| `language.signatureHelp` | Language > Signature Help | `Ctrl+Shift+SPACE` |
+| `language.complete` | Language > Complete | `Shortcut+SPACE` |
+| `language.hover` | Language > Show Hover Info | `Shortcut+I` |
+| `language.signatureHelp` | Language > Signature Help | `Shortcut+Shift+SPACE` |
 | `language.goToDefinition` | Language > Go to Definition | `F12` |
 | `language.findReferences` | Language > Find References | `Shift+F12` |
-| `language.documentSymbols` | Language > Document Symbols | `Ctrl+Shift+O` |
+| `language.documentSymbols` | Language > Document Symbols | `Shortcut+Shift+O` |
 | `language.rename` | Language > Rename Symbol | `F2` |
-| `language.format` | Language > Format Document | `Ctrl+Shift+F` |
-| `run.build` | Run > Build | `Ctrl+B` |
+| `language.format` | Language > Format Document | `Shortcut+Shift+F` |
+| `run.build` | Run > Build | `Shortcut+B` |
 | `run.runCommand` | Run > Run Command | `F5` |
-| `run.stopAll` | Run > Stop All Processes | `Ctrl+PERIOD` |
+| `run.stopAll` | Run > Stop All Processes | `Shortcut+PERIOD` |
 | `run.processes` | Run > Processes | (none) |
-| `settings.open` | Settings > Settings | `Ctrl+COMMA` |
+| `settings.open` | Settings > Settings | `Shortcut+COMMA` |
 | `settings.project` | Settings > Project Settings | (none) |
 | `settings.openUserFile` | Settings > Open User Settings File | (none) |
 | `settings.openProjectFile` | Settings > Open Project Settings File | (none) |
