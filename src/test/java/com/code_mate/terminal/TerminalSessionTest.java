@@ -155,6 +155,60 @@ class TerminalSessionTest {
         for (String no : new String[] {"a && b", "a &&", "echo hi", "&", " & ", "cat <&", "echo x >&", "", "echo '&' x"}) assertFalse(TerminalSession.launchesBackgroundJob(no), no);
     }
 
+    @Test void anAmpersandInTheMiddleOfALineBackgroundsTheCommandBeforeIt() {
+        for (String yes : new String[] {"sleep 30 & echo hi", "a & b", "a&b", "a & b &", "a ; b & c", "a | b & c", "(a) & b", "echo \"x\" & echo y"})
+            assertTrue(TerminalSession.launchesBackgroundJob(yes), yes);
+        assertEquals(1, TerminalSession.backgroundOperators("a & b"));
+        assertEquals(2, TerminalSession.backgroundOperators("a & b &"));
+        assertEquals(2, TerminalSession.backgroundOperators("a & b & c"));
+    }
+
+    @Test void ampersandsThatAreNotBackgroundOperatorsAreIgnored() {
+        for (String no : new String[] {
+                "echo \"a & b\"", "echo 'a & b'", "echo a \\& b", "echo a \\&", "echo hi # & later", "echo hi #&",
+                "cmd 2>&1", "cmd >&2", "cmd &> out.log", "cmd &>> out.log", "cmd |& tee log", "cat <&3",
+                "a && b", "a && b && c", "a || b", "& echo hi", "a ; & b", "echo \"unterminated &", "echo 'unterminated &"})
+            assertFalse(TerminalSession.launchesBackgroundJob(no), no);
+    }
+
+    @Test void aHashInsideAWordIsNotAComment() {
+        assertTrue(TerminalSession.launchesBackgroundJob("echo a#b &"));
+        assertTrue(TerminalSession.launchesBackgroundJob("echo a#b & echo c"));
+    }
+
+    @Test void foregroundTailIsOnlyReportedWhenACommandFollowsTheLastAmpersand() {
+        assertTrue(TerminalSession.hasForegroundTail("a & b"));
+        assertTrue(TerminalSession.hasForegroundTail("a & b & c"));
+        assertFalse(TerminalSession.hasForegroundTail("a & b &"));
+        assertFalse(TerminalSession.hasForegroundTail("a &"));
+        assertFalse(TerminalSession.hasForegroundTail("echo hi"));
+        assertFalse(TerminalSession.hasForegroundTail("a && b"));
+    }
+
+    @Test void aMidLineAmpersandBackgroundsTheFirstCommandAndLeavesTheSecondInTheForeground() throws Exception {
+        session.submit("sleep 31 & sleep 32");
+        until(() -> session.backgroundJobs() == 1 && session.isBusy());
+        assertEquals("sleep 31 & sleep 32", session.foreground());
+        assertTrue(session.interrupt(), "Ctrl+C reaches the foreground command");
+        until(() -> !session.isBusy());
+        assertEquals(1, session.backgroundJobs(), "...but the job before the & survives");
+    }
+
+    @Test void twoAmpersandsOnOneLineStartTwoBackgroundJobs() throws Exception {
+        session.submit("sleep 33 & sleep 34 &");
+        until(() -> session.backgroundJobs() == 2);
+        assertFalse(session.isBusy());
+    }
+
+    @Test void quotedAmpersandsDoNotCreateBackgroundJobs() throws Exception {
+        session.submit("echo 'a & b'; sleep 35");
+        until(session::isBusy);
+        assertEquals(0, session.backgroundJobs());
+        assertTrue(session.interrupt());
+        until(() -> !session.isBusy());
+        assertEquals(0, session.backgroundJobs());
+    }
+
     @Test void windowsNeverDetectsBackgroundJobs() {
         String original = System.getProperty("os.name");
         try { System.setProperty("os.name", "Windows 11"); assertFalse(TerminalSession.launchesBackgroundJob("start x &")); }

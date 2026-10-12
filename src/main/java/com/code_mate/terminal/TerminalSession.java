@@ -6,6 +6,9 @@ import com.code_mate.build.ShellCommand;
 
 import java.io.File;
 import java.io.IOException;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -23,8 +26,10 @@ import java.util.function.Supplier;
  *       sends it Ctrl+C (SIGINT) without killing the shell.</li>
  *   <li><b>Background jobs:</b> a line ending in a lone {@code &} (e.g. {@code npm start &}) is launched in the
  *       background. Its processes are remembered and no longer count as the foreground command, so the
- *       session stays idle and Ctrl+C leaves them running. Only a trailing {@code &} is recognized
- *       (not {@code a & b}), and not on Windows, where {@code &} is just a command separator.</li>
+ *       session stays idle and Ctrl+C leaves them running. A lone {@code &} is recognized anywhere on the line
+ *       (so {@code a & b} backgrounds {@code a} and runs {@code b} in the foreground), but not inside quotes,
+ *       after a backslash, in a comment, or as part of {@code &&}, {@code &>}, {@code >&}, {@code <&} or
+ *       {@code |&}; and not on Windows, where {@code &} is just a command separator.</li>
  *   <li><b>Virtualenv awareness:</b> a PTY-less shell cannot show a prompt, so once the shell has been idle
  *       after a command the session sends one read-only probe (a single printf of $VIRTUAL_ENV) and hides
  *       its output. The probe is only sent while idle, so it can never be consumed by a running program.</li>
@@ -57,6 +62,9 @@ public final class TerminalSession {
     private final Set<Long> backgroundPids = new HashSet<>();
     private Set<Long> backgroundBaseline;
     private long backgroundSince;
+    private int backgroundExpected;     // lone `&` operators on the line being classified
+    private int backgroundClaimed;      // processes claimed so far for that line
+    private boolean backgroundTail;     // true when a foreground command follows the last `&`
 
     public TerminalSession(String name, ProcessManager processes, Supplier<File> directory, Listener listener) {
         this.name = name; this.processes = processes; this.directory = directory; this.listener = listener;
@@ -68,7 +76,11 @@ public final class TerminalSession {
         classifyBackground(); // settle any earlier `&` launch before this line can start a foreground child
         if (!busy) {
             lastCommand = line.strip();
-            if (launchesBackgroundJob(line)) { backgroundBaseline = childPids(); backgroundSince = System.currentTimeMillis(); }
+            int jobs = backgroundOperators(line);
+            if (jobs > 0) {
+                backgroundBaseline = childPids(); backgroundSince = System.currentTimeMillis();
+                backgroundExpected = jobs; backgroundClaimed = 0; backgroundTail = hasForegroundTail(line);
+            }
         }
         lastSubmit = System.currentTimeMillis();
         probePending = true;
@@ -123,13 +135,49 @@ public final class TerminalSession {
         if (shell != null && shell.isAlive()) processes.stop(shell);
     }
 
-    /** True for a line that ends in a lone {@code &}: not {@code &&}, not a redirection such as {@code 2>&1}-style {@code >&}. */
-    static boolean launchesBackgroundJob(String line) {
-        if (ShellCommand.isWindows()) return false;
-        String s = line.strip();
-        if (!s.endsWith("&") || s.length() < 2) return false;
-        char before = s.charAt(s.length() - 2);
-        return before != '&' && before != '>' && before != '<';
+    /** True when the line contains at least one lone {@code &} that backgrounds a command (see {@link #backgroundOperators}). */
+    static boolean launchesBackgroundJob(String line) { return backgroundOperators(line) > 0; }
+
+    /** True when a command follows the last backgrounding {@code &}, e.g. the {@code b} in {@code a & b}. */
+    static boolean hasForegroundTail(String line) { return scan(line)[1] == 1; }
+
+    /**
+     * Number of lone {@code &} operators that background a command. Skips quoted or escaped ampersands, comments,
+     * {@code &&}, {@code &>}, {@code >&}, {@code <&} and {@code |&}, and an {@code &} with no command before it.
+     */
+    static int backgroundOperators(String line) { return scan(line)[0]; }
+
+    /** Returns {count of backgrounding operators, 1 if a command follows the last one}. */
+    private static int[] scan(String line) {
+        if (ShellCommand.isWindows() || line == null) return new int[] {0, 0};
+        int count = 0;
+        boolean hasCommand = false, single = false, dbl = false, wordStart = true;
+        for (int i = 0; i < line.length(); i++) {
+            char c = line.charAt(i);
+            if (single) { if (c == '\'') single = false; continue; }
+            if (dbl) {
+                if (c == '\\') i++;
+                else if (c == '"') dbl = false;
+                continue;
+            }
+            if (c == '\\') { hasCommand = true; wordStart = false; i++; continue; }
+            if (c == '\'') { single = true; hasCommand = true; wordStart = false; continue; }
+            if (c == '"') { dbl = true; hasCommand = true; wordStart = false; continue; }
+            if (c == '#' && wordStart) break;
+            if (c == '&') {
+                char prev = i > 0 ? line.charAt(i - 1) : ' ';
+                char next = i + 1 < line.length() ? line.charAt(i + 1) : ' ';
+                if (next == '&') { hasCommand = false; i++; wordStart = true; continue; }   // &&
+                if (prev == '>' || prev == '<' || prev == '|' || next == '>') { wordStart = false; continue; } // redirections, |&
+                if (hasCommand) count++;
+                hasCommand = false; wordStart = true;
+                continue;
+            }
+            if (c == ';' || c == '|' || c == '(' || c == '\n') { hasCommand = false; wordStart = true; continue; }
+            if (Character.isWhitespace(c)) { wordStart = true; continue; }
+            hasCommand = true; wordStart = false;
+        }
+        return new int[] {count, count > 0 && hasCommand ? 1 : 0};
     }
 
     private Set<Long> childPids() {
@@ -144,16 +192,30 @@ public final class TerminalSession {
         return shell.children().stream().filter(c -> !backgroundPids.contains(c.pid())).toList();
     }
 
-    /** After a `&` launch, children that were not there before the line was sent are the background job. */
+    /**
+     * After a `&` launch, children that were not there before the line was sent are the background job(s). When a
+     * foreground command follows the `&` (`a & b`), only the earliest-started new children, one per `&`, are claimed
+     * so that `b` stays the foreground command.
+     */
     private void classifyBackground() {
         if (backgroundBaseline == null) return;
         if (shell == null || !shell.isAlive()) { backgroundBaseline = null; return; }
-        boolean found = false;
-        for (long pid : childPids()) {
-            if (!backgroundBaseline.contains(pid)) { backgroundPids.add(pid); found = true; }
+        List<Long> fresh = new ArrayList<>();
+        for (long pid : childPids()) if (!backgroundBaseline.contains(pid) && !backgroundPids.contains(pid)) fresh.add(pid);
+        fresh.sort(Comparator.comparing(TerminalSession::startedAt).thenComparing(Comparator.naturalOrder()));
+        if (backgroundTail) {
+            int room = backgroundExpected - backgroundClaimed;
+            if (fresh.size() > room) fresh = new ArrayList<>(fresh.subList(0, Math.max(room, 0)));
         }
+        backgroundPids.addAll(fresh);
+        backgroundClaimed += fresh.size();
+        boolean done = !fresh.isEmpty() && (!backgroundTail || backgroundClaimed >= backgroundExpected);
         // A job that already finished (`echo hi &`) never shows up, so stop looking after a while.
-        if (found || System.currentTimeMillis() - backgroundSince > BACKGROUND_WINDOW_MILLIS) backgroundBaseline = null;
+        if (done || System.currentTimeMillis() - backgroundSince > BACKGROUND_WINDOW_MILLIS) backgroundBaseline = null;
+    }
+
+    private static Instant startedAt(long pid) {
+        return ProcessHandle.of(pid).flatMap(h -> h.info().startInstant()).orElse(Instant.MAX);
     }
 
     private void ensureShell() throws IOException {

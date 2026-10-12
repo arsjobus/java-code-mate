@@ -9,7 +9,7 @@ Known issues for the initial foundation.
 - [ ] The integrated terminal is line-oriented (no PTY): full-screen programs and job control do not work.
 - [ ] Windows terminals: Ctrl+C terminates the command rather than interrupting it, and virtualenv detection is untested.
 - [ ] Build output is parsed for javac, Maven, gcc/clang, tsc/MSVC, Kotlin, Go, rustc and Python tracebacks; other tools show their output but no problems.
-- [ ] Background jobs are only recognized when the line ends in a lone `&` (not `a & b`) and not on Windows.
+- [ ] Background jobs are recognized for a lone `&` anywhere on the line (not in quotes, comments or `&&`/`&>`/`>&`/`|&`), but not on Windows. For `a & b` one process per `&` is treated as the background job, so a backgrounded pipeline (`a | b & c`) is only partly tracked.
 - [ ] Language servers are started manually per language (Language > Start Language Server...). A `language.server.<id>` setting (user or project) pre-fills the command, but servers are never started automatically.
 - [ ] LSP: no `workspace/applyEdit`, code actions, range formatting or workspace symbols; servers that rename files as part of a rename are refused.
 - [ ] LSP: completion snippets are flattened to plain text (placeholders keep their default text), and results pointing outside `file:` URIs (e.g. jar contents) are not opened.
