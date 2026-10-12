@@ -2,8 +2,11 @@ package com.code_mate.editor;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -22,6 +25,10 @@ import java.util.Set;
  * <p>The scanner only understands C-family syntax ({@code //} and {@code /* *}{@code /} comments, double and single
  * quoted literals), so {@link #spans(String, File)} leaves files of other kinds (Python, shell, Markdown, plain
  * text, ...) unstyled instead of colouring an apostrophe in prose or a {@code #} comment as if it were Java.
+ *
+ * <p>Keywords and well-known types come from a per-{@link Language} list chosen by the file's extension, so
+ * {@code fn} is a keyword in a Rust file, {@code func} in Go, and {@code class} is not one in Go or JSON. An untitled
+ * buffer is treated as Java, as the editor is Java-oriented.
  */
 public final class SyntaxHighlighter {
     /** Documents longer than this get no highlighting. Roughly {@code FileIO.LARGE_FILE_BYTES} of ASCII text. */
@@ -30,37 +37,97 @@ public final class SyntaxHighlighter {
     /** A highlighted range: {@code [start, end)} and the CSS style class to apply. */
     public record Span(int start, int end, String style) {}
 
-    private static final Set<String> KEYWORDS = Set.of("abstract", "assert", "break", "case", "catch", "class", "continue", "default", "do", "else", "enum",
-        "extends", "final", "finally", "for", "if", "implements", "import", "instanceof", "interface", "new", "package", "private", "protected", "public",
-        "return", "static", "super", "switch", "synchronized", "this", "throw", "throws", "try", "var", "void", "while", "record", "sealed", "yield");
-    private static final Set<String> TYPES = Set.of("boolean", "byte", "char", "double", "float", "int", "long", "short", "String", "Object", "Integer", "Long",
-        "Double", "Float", "Boolean", "System", "List", "Map", "Set", "File");
+    /** The languages whose keywords the scanner knows. All share the same C-family lexical rules. */
+    public enum Language { JAVA, KOTLIN, JAVASCRIPT, TYPESCRIPT, C, CPP, GO, RUST, PHP, JSON }
 
-    /** Extensions (lower case, no dot) of files whose syntax the scanner understands. */
-    private static final Set<String> EXTENSIONS = Set.of("java", "kt", "kts", "js", "mjs", "cjs", "jsx", "ts", "tsx", "c", "h", "cpp", "cc", "cxx", "hpp", "hh",
-        "go", "rs", "php", "json");
+    /** What counts as a keyword or a type in one language, and whether {@code @name} is an annotation or decorator. */
+    private record Lexicon(Set<String> keywords, Set<String> types, boolean annotations) {}
+
+    private static final Map<Language, Lexicon> LEXICONS = new EnumMap<>(Language.class);
+
+    private static Set<String> words(String list) { return list.isBlank() ? Set.of() : Set.copyOf(Arrays.asList(list.trim().split("\\s+"))); }
+
+    private static void define(Language language, String keywords, String types, boolean annotations) {
+        LEXICONS.put(language, new Lexicon(words(keywords), words(types), annotations));
+    }
+
+    private static final String C_KEYWORDS = "auto break case const continue default do else enum extern for goto if inline register restrict return "
+        + "sizeof static struct switch typedef union volatile while";
+    private static final String C_TYPES = "char double float int long short signed unsigned void size_t bool FILE int8_t int16_t int32_t int64_t "
+        + "uint8_t uint16_t uint32_t uint64_t";
+    private static final String JS_KEYWORDS = "async await break case catch class const continue debugger default delete do else export extends false finally "
+        + "for function if import in instanceof let new null return static super switch this throw true try typeof undefined var void while with yield";
+    private static final String JS_TYPES = "Array Boolean Date Error JSON Map Math Number Object Promise Set String Symbol";
+
+    static {
+        define(Language.JAVA, "abstract assert break case catch class continue default do else enum extends final finally for if implements import instanceof "
+            + "interface new package private protected public return static super switch synchronized this throw throws try var void while record sealed yield",
+            "boolean byte char double float int long short String Object Integer Long Double Float Boolean System List Map Set File", true);
+        define(Language.KOTLIN, "abstract as break by class companion const constructor continue data do else enum false final for fun if import in init inline "
+            + "interface internal is lateinit null object open override package private protected public return sealed super suspend this throw true try "
+            + "typealias val var when while",
+            "Any Array Boolean Byte Char Double Float Int List Long Map Nothing Set Short String Unit", true);
+        define(Language.JAVASCRIPT, JS_KEYWORDS, JS_TYPES, true);
+        define(Language.TYPESCRIPT, JS_KEYWORDS + " abstract as declare enum implements interface keyof namespace private protected public readonly type",
+            JS_TYPES + " any bigint boolean never number object string symbol unknown", true);
+        define(Language.C, C_KEYWORDS, C_TYPES, false);
+        define(Language.CPP, C_KEYWORDS + " catch class constexpr delete explicit false final friend mutable namespace new noexcept nullptr operator override "
+            + "private protected public template this throw true try typename using virtual",
+            C_TYPES + " string vector map set std", false);
+        define(Language.GO, "break case chan const continue default defer else fallthrough false for func go goto if import interface map nil package range "
+            + "return select struct switch true type var",
+            "any bool byte complex64 complex128 error float32 float64 int int8 int16 int32 int64 rune string uint uint8 uint16 uint32 uint64 uintptr", false);
+        define(Language.RUST, "as async await break const continue crate dyn else enum extern false fn for if impl in let loop match mod move mut pub ref return "
+            + "self Self static struct super trait true type unsafe use where while",
+            "Box Option Result String Vec bool char f32 f64 i8 i16 i32 i64 i128 isize str u8 u16 u32 u64 u128 usize", false);
+        define(Language.PHP, "abstract and as break case catch class clone const continue declare default do echo else elseif extends false final finally fn for "
+            + "foreach function global if implements include instanceof interface namespace new null or private protected public require return static switch "
+            + "throw trait true try use var while yield",
+            "array bool callable float int iterable mixed object string void", false);
+        define(Language.JSON, "true false null", "", false);
+    }
+
+    /** Extensions (lower case, no dot) of files whose syntax the scanner understands, and the language each one uses. */
+    private static final Map<String, Language> EXTENSIONS = Map.ofEntries(
+        Map.entry("java", Language.JAVA), Map.entry("kt", Language.KOTLIN), Map.entry("kts", Language.KOTLIN),
+        Map.entry("js", Language.JAVASCRIPT), Map.entry("mjs", Language.JAVASCRIPT), Map.entry("cjs", Language.JAVASCRIPT), Map.entry("jsx", Language.JAVASCRIPT),
+        Map.entry("ts", Language.TYPESCRIPT), Map.entry("tsx", Language.TYPESCRIPT),
+        Map.entry("c", Language.C), Map.entry("h", Language.CPP), // a header may be C or C++; the C++ list is a superset
+        Map.entry("cpp", Language.CPP), Map.entry("cc", Language.CPP), Map.entry("cxx", Language.CPP), Map.entry("hpp", Language.CPP), Map.entry("hh", Language.CPP),
+        Map.entry("go", Language.GO), Map.entry("rs", Language.RUST), Map.entry("php", Language.PHP), Map.entry("json", Language.JSON));
 
     private SyntaxHighlighter() {}
 
     /**
-     * True when the file should get syntax highlighting: an untitled buffer (the editor is Java-oriented), or a file
-     * with a C-family extension. Other files, and files without an extension, are shown as plain text.
+     * The language whose keywords the file gets: {@link Language#JAVA} for an untitled buffer (the editor is
+     * Java-oriented), the language of a C-family extension, and {@code null} for any other file or a file without an
+     * extension, which is shown as plain text.
      */
-    public static boolean appliesTo(File file) {
-        if (file == null) return true;
+    public static Language languageOf(File file) {
+        if (file == null) return Language.JAVA;
         String name = file.getName();
         int dot = name.lastIndexOf('.');
-        return dot >= 0 && EXTENSIONS.contains(name.substring(dot + 1).toLowerCase(Locale.ROOT));
+        return dot < 0 ? null : EXTENSIONS.get(name.substring(dot + 1).toLowerCase(Locale.ROOT));
     }
+
+    /** True when the file should get syntax highlighting, that is when {@link #languageOf(File)} knows its language. */
+    public static boolean appliesTo(File file) { return languageOf(file) != null; }
 
     /** True when {@link #spans} would produce nothing because the text is too long. */
     public static boolean tooLarge(int length) { return length > MAX_CHARS; }
 
     /** Like {@link #spans(String)}, but empty when {@link #appliesTo(File)} says the file is not highlightable. */
-    public static List<Span> spans(String text, File file) { return appliesTo(file) ? spans(text) : new ArrayList<>(); }
+    public static List<Span> spans(String text, File file) {
+        Language language = languageOf(file);
+        return language == null ? new ArrayList<>() : spansIn(text, language);
+    }
 
-    /** The tokens of the text in order, without overlaps. Empty for text over {@link #MAX_CHARS}. */
-    public static List<Span> spans(String text) {
+    /** The tokens of Java text, see {@link #spansIn(String, Language)}. */
+    public static List<Span> spans(String text) { return spansIn(text, Language.JAVA); }
+
+    /** The tokens of the text in order, without overlaps, using the keywords of the language. Empty for text over {@link #MAX_CHARS}. */
+    public static List<Span> spansIn(String text, Language language) {
+        Lexicon lexicon = LEXICONS.get(language);
         List<Span> spans = new ArrayList<>();
         int n = text.length();
         if (tooLarge(n)) return spans;
@@ -86,13 +153,13 @@ public final class SyntaxHighlighter {
                 if (end >= 0) { i = add(spans, i, end, "string"); continue; }
                 if (c == '"') doubleDeadUntil = -end - 1; else singleDeadUntil = -end - 1;
                 i++;
-            } else if (c == '@' && i + 1 < n && Character.isJavaIdentifierStart(text.charAt(i + 1))) {
+            } else if (lexicon.annotations() && c == '@' && i + 1 < n && Character.isJavaIdentifierStart(text.charAt(i + 1))) {
                 i = add(spans, i, identifierEnd(text, i + 1), "annotation");
             } else if (Character.isJavaIdentifierStart(c)) {
                 int end = identifierEnd(text, i);
                 String word = text.substring(i, end);
-                if (KEYWORDS.contains(word)) add(spans, i, end, "keyword");
-                else if (TYPES.contains(word)) add(spans, i, end, "type");
+                if (lexicon.keywords().contains(word)) add(spans, i, end, "keyword");
+                else if (lexicon.types().contains(word)) add(spans, i, end, "type");
                 i = end;
             } else if (c >= '0' && c <= '9') {
                 int end = digitsEnd(text, i);

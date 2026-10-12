@@ -2,16 +2,22 @@ package com.code_mate.editor;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.code_mate.editor.SyntaxHighlighter.Language;
 import com.code_mate.editor.SyntaxHighlighter.Span;
 import java.io.File;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 class SyntaxHighlighterTest {
     private static List<String> styled(String text) {
         return SyntaxHighlighter.spans(text).stream().map(s -> s.style() + ":" + text.substring(s.start(), s.end())).toList();
+    }
+
+    private static List<String> styled(String text, String fileName) {
+        return SyntaxHighlighter.spans(text, new File(fileName)).stream().map(s -> s.style() + ":" + text.substring(s.start(), s.end())).toList();
     }
 
     @Test void recognisesEveryTokenKind() {
@@ -135,5 +141,118 @@ class SyntaxHighlighterTest {
         List<Span> a = SyntaxHighlighter.spans("class A", new File("a.txt"));
         a.add(new Span(0, 1, "x")); // callers may mutate the returned list without affecting later calls
         assertTrue(SyntaxHighlighter.spans("class A", new File("a.txt")).isEmpty());
+    }
+
+    // --- keywords belong to the language of the file (BUGS.md: "keyword colours are Java's for every highlighted language") ---
+
+    @ParameterizedTest
+    @CsvSource({"A.java,JAVA", "a.JAVA,JAVA", "a.kt,KOTLIN", "a.kts,KOTLIN", "a.js,JAVASCRIPT", "a.mjs,JAVASCRIPT", "a.cjs,JAVASCRIPT", "a.jsx,JAVASCRIPT",
+        "a.ts,TYPESCRIPT", "a.tsx,TYPESCRIPT", "a.c,C", "a.h,CPP", "a.cpp,CPP", "a.cc,CPP", "a.cxx,CPP", "a.hpp,CPP", "a.hh,CPP", "a.go,GO", "a.rs,RUST",
+        "a.php,PHP", "a.json,JSON", "dir.py/Main.java,JAVA"})
+    void eachExtensionMapsToItsLanguage(String name, Language expected) { assertEquals(expected, SyntaxHighlighter.languageOf(new File(name)), name); }
+
+    @ParameterizedTest
+    @CsvSource({"a.py", "a.md", "a.txt", "README", "Makefile", ".bashrc", "trailing.", "a.java.bak", "dir.java/notes"})
+    void otherFilesHaveNoLanguage(String name) { assertNull(SyntaxHighlighter.languageOf(new File(name)), name); }
+
+    @Test void anUntitledBufferIsJava() { assertEquals(Language.JAVA, SyntaxHighlighter.languageOf(null)); }
+
+    @Test void appliesToAgreesWithLanguageOf() {
+        for (String name : List.of("A.java", "a.rs", "a.json", "a.py", "README", "a.txt")) {
+            File file = new File(name);
+            assertEquals(SyntaxHighlighter.languageOf(file) != null, SyntaxHighlighter.appliesTo(file), name);
+        }
+        assertTrue(SyntaxHighlighter.appliesTo(null));
+    }
+
+    @Test void everyLanguageHasAKeywordList() {
+        for (Language language : Language.values()) assertDoesNotThrow(() -> SyntaxHighlighter.spansIn("x 1 \"s\" // c", language), language.name());
+    }
+
+    @Test void rustKeywordsAndTypesAreHighlightedInRustFiles() {
+        assertEquals(List.of("keyword:fn", "keyword:let", "keyword:mut", "type:u32", "number:1", "keyword:match", "keyword:Self"),
+            styled("fn main() { let mut x: u32 = 1; match Self }", "main.rs"));
+    }
+
+    @Test void goKeywordsAndTypesAreHighlightedInGoFiles() {
+        assertEquals(List.of("keyword:func", "keyword:var", "type:string", "keyword:go", "keyword:defer", "keyword:nil"),
+            styled("func main() { var s string; go run(); defer done(); nil }", "main.go"));
+    }
+
+    @Test void kotlinKeywordsAndTypesAreHighlightedInKotlinFiles() {
+        assertEquals(List.of("keyword:fun", "keyword:val", "type:Int", "number:1", "keyword:when"), styled("fun main() { val x: Int = 1; when }", "Main.kt"));
+        assertEquals(List.of("keyword:val"), styled("val", "build.gradle.kts"));
+    }
+
+    @Test void typeScriptKnowsInterfacesAndPrimitiveTypesButJavaScriptDoesNot() {
+        String code = "interface Foo { x: number; } type T = string;";
+        assertEquals(List.of("keyword:interface", "type:number", "keyword:type", "type:string"), styled(code, "a.ts"));
+        assertEquals(List.of("keyword:interface", "type:number", "keyword:type", "type:string"), styled(code, "a.tsx"));
+        assertEquals(List.of(), styled(code, "a.js"));
+    }
+
+    @Test void javaScriptKeywordsAreHighlightedInJavaScriptFiles() {
+        assertEquals(List.of("keyword:const", "keyword:function", "keyword:await", "keyword:typeof", "keyword:undefined", "type:Promise"),
+            styled("const function await typeof undefined Promise", "a.js"));
+    }
+
+    @Test void cAndCppDifferInTheirKeywords() {
+        assertEquals(List.of("keyword:struct", "type:int", "keyword:typedef"), styled("struct int typedef class public", "a.c"));
+        assertEquals(List.of("keyword:class", "keyword:public", "keyword:namespace", "type:string"), styled("class public namespace string", "a.cpp"));
+        assertEquals(List.of("keyword:class"), styled("class", "a.h"));
+    }
+
+    @Test void phpKeywordsAreHighlightedInPhpFiles() {
+        assertEquals(List.of("keyword:function", "keyword:echo", "keyword:foreach", "type:string"), styled("function echo foreach string $class", "a.php"));
+    }
+
+    @Test void javaKeywordsAreNotHighlightedInOtherLanguages() {
+        assertEquals(List.of("keyword:class", "keyword:public", "keyword:void", "keyword:new", "keyword:implements", "keyword:synchronized"),
+            styled("class public void new implements synchronized", "A.java"));
+        String javaOnly = "class public void new implements synchronized";
+        assertEquals(List.of(), styled(javaOnly, "a.go"));
+        assertEquals(List.of(), styled(javaOnly, "a.rs"));
+        assertEquals(List.of(), styled(javaOnly, "a.json"));
+    }
+
+    @Test void jsonOnlyHighlightsItsThreeLiterals() {
+        assertEquals(List.of("string:\"class\"", "keyword:true", "string:\"n\"", "keyword:null", "string:\"v\"", "number:1", "string:\"x\"", "keyword:false"),
+            styled("{\"class\": true, \"n\": null, \"v\": 1, \"x\": false}", "a.json"));
+    }
+
+    @Test void identifiersThatContainAKeywordAreStillNotHighlighted() {
+        assertEquals(List.of(), styled("fnord letter mutable implement", "a.rs"));
+        assertEquals(List.of(), styled("funcs gone variable", "a.go"));
+    }
+
+    @Test void annotationsAreOnlyHighlightedWhereTheLanguageHasThem() {
+        assertEquals(List.of("annotation:@Override"), styled("@Override", "A.java"));
+        assertEquals(List.of("annotation:@Component"), styled("@Component", "a.ts"));
+        assertEquals(List.of("annotation:@JvmStatic"), styled("@JvmStatic", "a.kt"));
+        for (String name : List.of("a.c", "a.cpp", "a.go", "a.rs", "a.php", "a.json")) assertEquals(List.of(), styled("@Override @foo", name), name);
+    }
+
+    @Test void stringsAndCommentsStillHideKeywordsInEveryLanguage() {
+        assertEquals(List.of("string:\"fn\"", "comment:// let mut"), styled("\"fn\" // let mut", "a.rs"));
+        assertEquals(List.of("comment:/* func var */", "keyword:go"), styled("/* func var */ go", "a.go"));
+    }
+
+    @Test void plainSpansAreJavaSpans() {
+        String code = "fn class val func 1";
+        assertEquals(List.of("keyword:class", "number:1"), styled(code));
+        assertEquals(SyntaxHighlighter.spansIn(code, Language.JAVA), SyntaxHighlighter.spans(code));
+        assertEquals(SyntaxHighlighter.spans(code), SyntaxHighlighter.spans(code, null));
+    }
+
+    @Test void spansForAFileUseTheLanguageOfThatFile() {
+        String code = "fn class func val";
+        assertEquals(SyntaxHighlighter.spansIn(code, Language.RUST), SyntaxHighlighter.spans(code, new File("a.rs")));
+        assertEquals(SyntaxHighlighter.spansIn(code, Language.GO), SyntaxHighlighter.spans(code, new File("a.go")));
+        assertNotEquals(SyntaxHighlighter.spans(code, new File("a.rs")), SyntaxHighlighter.spans(code, new File("a.go")));
+    }
+
+    @Test void everyLanguageStaysWithinTheSizeLimit() {
+        String big = "x ".repeat(SyntaxHighlighter.MAX_CHARS);
+        for (Language language : Language.values()) assertTrue(SyntaxHighlighter.spansIn(big, language).isEmpty(), language.name());
     }
 }
