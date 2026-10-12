@@ -22,9 +22,20 @@ import java.util.Set;
  * file; an unterminated block comment runs to the end of the text (as in most editors); text blocks
  * ({@code """}) may span lines.
  *
- * <p>The scanner only understands C-family syntax ({@code //} and {@code /* *}{@code /} comments, double and single
- * quoted literals), so {@link #spans(String, File)} leaves files of other kinds (Python, shell, Markdown, plain
- * text, ...) unstyled instead of colouring an apostrophe in prose or a {@code #} comment as if it were Java.
+ * <p>Three lexical families are understood, and {@link #spans(String, File)} leaves files of any other kind (shell,
+ * Markdown, plain text, ...) unstyled instead of colouring an apostrophe in prose or a {@code #} comment as if it were
+ * Java:
+ * <ul>
+ *   <li><b>C-family</b> ({@code //} and {@code /* *}{@code /} comments, double and single quoted literals): Java,
+ *       Kotlin, JavaScript, TypeScript, C, C++, Go, Rust, PHP and JSON.
+ *   <li><b>Python</b>: {@code #} comments, single and triple quoted strings that may carry an {@code r}, {@code b},
+ *       {@code f} or {@code u} prefix, and dotted decorators such as {@code @app.route}.
+ *   <li><b>Markup</b> (HTML and XML): comments, {@code <!DOCTYPE>} and {@code <?xml ...?>} declarations, CDATA
+ *       sections, tag names (as keywords), attribute names (as types) and quoted attribute values. Only text inside a
+ *       tag is ever coloured, so an apostrophe in the prose between tags stays plain. In HTML the content of a
+ *       {@code <script>} element is highlighted as JavaScript and the content of a {@code <style>} element is left
+ *       alone.
+ * </ul>
  *
  * <p>Keywords and well-known types come from a per-{@link Language} list chosen by the file's extension, so
  * {@code fn} is a keyword in a Rust file, {@code func} in Go, and {@code class} is not one in Go or JSON. An untitled
@@ -37,18 +48,25 @@ public final class SyntaxHighlighter {
     /** A highlighted range: {@code [start, end)} and the CSS style class to apply. */
     public record Span(int start, int end, String style) {}
 
-    /** The languages whose keywords the scanner knows. All share the same C-family lexical rules. */
-    public enum Language { JAVA, KOTLIN, JAVASCRIPT, TYPESCRIPT, C, CPP, GO, RUST, PHP, JSON }
+    /** The languages the scanner knows. Each one follows the lexical rules of one {@link Syntax}. */
+    public enum Language { JAVA, KOTLIN, JAVASCRIPT, TYPESCRIPT, C, CPP, GO, RUST, PHP, JSON, PYTHON, HTML, XML }
+
+    /** How a language is tokenised: C-style comments and strings, Python's {@code #} and triple quotes, or angle-bracket markup. */
+    private enum Syntax { C_FAMILY, PYTHON, MARKUP }
 
     /** What counts as a keyword or a type in one language, and whether {@code @name} is an annotation or decorator. */
-    private record Lexicon(Set<String> keywords, Set<String> types, boolean annotations) {}
+    private record Lexicon(Set<String> keywords, Set<String> types, boolean annotations, Syntax syntax) {}
 
     private static final Map<Language, Lexicon> LEXICONS = new EnumMap<>(Language.class);
 
     private static Set<String> words(String list) { return list.isBlank() ? Set.of() : Set.copyOf(Arrays.asList(list.trim().split("\\s+"))); }
 
     private static void define(Language language, String keywords, String types, boolean annotations) {
-        LEXICONS.put(language, new Lexicon(words(keywords), words(types), annotations));
+        define(language, keywords, types, annotations, Syntax.C_FAMILY);
+    }
+
+    private static void define(Language language, String keywords, String types, boolean annotations, Syntax syntax) {
+        LEXICONS.put(language, new Lexicon(words(keywords), words(types), annotations, syntax));
     }
 
     private static final String C_KEYWORDS = "auto break case const continue default do else enum extern for goto if inline register restrict return "
@@ -85,7 +103,16 @@ public final class SyntaxHighlighter {
             + "throw trait true try use var while yield",
             "array bool callable float int iterable mixed object string void", false);
         define(Language.JSON, "true false null", "", false);
+        define(Language.PYTHON, "False None True and as assert async await break class continue def del elif else except finally for from global if import in "
+            + "is lambda nonlocal not or pass raise return try while with yield",
+            "bool bytearray bytes complex dict float frozenset int list object range set str tuple type Exception", true, Syntax.PYTHON);
+        // Markup colours tags and attributes by position, not by word, so it needs no keyword or type list.
+        define(Language.HTML, "", "", false, Syntax.MARKUP);
+        define(Language.XML, "", "", false, Syntax.MARKUP);
     }
+
+    /** The prefixes (lower case) that may precede the quote of a Python string literal. */
+    private static final Set<String> PYTHON_STRING_PREFIXES = Set.of("r", "u", "b", "f", "br", "rb", "fr", "rf");
 
     /** Extensions (lower case, no dot) of files whose syntax the scanner understands, and the language each one uses. */
     private static final Map<String, Language> EXTENSIONS = Map.ofEntries(
@@ -94,14 +121,19 @@ public final class SyntaxHighlighter {
         Map.entry("ts", Language.TYPESCRIPT), Map.entry("tsx", Language.TYPESCRIPT),
         Map.entry("c", Language.C), Map.entry("h", Language.CPP), // a header may be C or C++; the C++ list is a superset
         Map.entry("cpp", Language.CPP), Map.entry("cc", Language.CPP), Map.entry("cxx", Language.CPP), Map.entry("hpp", Language.CPP), Map.entry("hh", Language.CPP),
-        Map.entry("go", Language.GO), Map.entry("rs", Language.RUST), Map.entry("php", Language.PHP), Map.entry("json", Language.JSON));
+        Map.entry("go", Language.GO), Map.entry("rs", Language.RUST), Map.entry("php", Language.PHP), Map.entry("json", Language.JSON),
+        Map.entry("py", Language.PYTHON), Map.entry("pyi", Language.PYTHON), Map.entry("pyw", Language.PYTHON),
+        Map.entry("html", Language.HTML), Map.entry("htm", Language.HTML), Map.entry("xhtml", Language.HTML),
+        Map.entry("xml", Language.XML), Map.entry("xsd", Language.XML), Map.entry("xsl", Language.XML), Map.entry("xslt", Language.XML),
+        Map.entry("svg", Language.XML), Map.entry("fxml", Language.XML), Map.entry("plist", Language.XML), Map.entry("rss", Language.XML),
+        Map.entry("atom", Language.XML), Map.entry("wsdl", Language.XML));
 
     private SyntaxHighlighter() {}
 
     /**
-     * The language whose keywords the file gets: {@link Language#JAVA} for an untitled buffer (the editor is
-     * Java-oriented), the language of a C-family extension, and {@code null} for any other file or a file without an
-     * extension, which is shown as plain text.
+     * The language whose rules the file gets: {@link Language#JAVA} for an untitled buffer (the editor is
+     * Java-oriented), the language of a known extension (C-family, Python, HTML or XML), and {@code null} for any other
+     * file or a file without an extension, which is shown as plain text.
      */
     public static Language languageOf(File file) {
         if (file == null) return Language.JAVA;
@@ -125,12 +157,20 @@ public final class SyntaxHighlighter {
     /** The tokens of Java text, see {@link #spansIn(String, Language)}. */
     public static List<Span> spans(String text) { return spansIn(text, Language.JAVA); }
 
-    /** The tokens of the text in order, without overlaps, using the keywords of the language. Empty for text over {@link #MAX_CHARS}. */
+    /** The tokens of the text in order, without overlaps, using the rules and keywords of the language. Empty for text over {@link #MAX_CHARS}. */
     public static List<Span> spansIn(String text, Language language) {
         Lexicon lexicon = LEXICONS.get(language);
         List<Span> spans = new ArrayList<>();
+        if (tooLarge(text.length())) return spans;
+        if (lexicon.syntax() == Syntax.MARKUP) markup(text, language == Language.HTML, spans);
+        else code(text, lexicon, spans);
+        return spans;
+    }
+
+    /** Scans C-family or Python source. */
+    private static void code(String text, Lexicon lexicon, List<Span> spans) {
+        boolean python = lexicon.syntax() == Syntax.PYTHON;
         int n = text.length();
-        if (tooLarge(n)) return spans;
         int i = 0;
         // Once a quote fails to close before the end of its line, no later quote of the same kind on that line can close
         // either (it would have been the closing quote, or sits inside an escape the first scan already skipped), so
@@ -138,23 +178,24 @@ public final class SyntaxHighlighter {
         int doubleDeadUntil = -1, singleDeadUntil = -1;
         while (i < n) {
             char c = text.charAt(i);
-            if (c == '/' && i + 1 < n && text.charAt(i + 1) == '/') {
+            boolean slash = c == '/' && i + 1 < n;
+            if (python ? c == '#' : slash && text.charAt(i + 1) == '/') {
                 int end = text.indexOf('\n', i);
                 i = add(spans, i, end < 0 ? n : end, "comment");
-            } else if (c == '/' && i + 1 < n && text.charAt(i + 1) == '*') {
+            } else if (!python && slash && text.charAt(i + 1) == '*') {
                 int close = text.indexOf("*/", i + 2);
                 i = add(spans, i, close < 0 ? n : close + 2, "comment");
-            } else if (c == '"' && text.startsWith("\"\"\"", i)) {
-                int close = text.indexOf("\"\"\"", i + 3);
-                i = add(spans, i, close < 0 ? n : close + 3, "string");
+            } else if ((c == '"' || python && c == '\'') && text.startsWith(c == '"' ? "\"\"\"" : "'''", i)) {
+                int start = python ? i - stringPrefixLength(text, i) : i;
+                i = add(spans, start, tripleEnd(text, i, c, python), "string");
             } else if (c == '"' || c == '\'') {
                 if (i < (c == '"' ? doubleDeadUntil : singleDeadUntil)) { i++; continue; }
                 int end = literalEnd(text, i, c);
-                if (end >= 0) { i = add(spans, i, end, "string"); continue; }
+                if (end >= 0) { add(spans, python ? i - stringPrefixLength(text, i) : i, end, "string"); i = end; continue; }
                 if (c == '"') doubleDeadUntil = -end - 1; else singleDeadUntil = -end - 1;
                 i++;
             } else if (lexicon.annotations() && c == '@' && i + 1 < n && Character.isJavaIdentifierStart(text.charAt(i + 1))) {
-                i = add(spans, i, identifierEnd(text, i + 1), "annotation");
+                i = add(spans, i, python ? dottedEnd(text, i + 1) : identifierEnd(text, i + 1), "annotation");
             } else if (Character.isJavaIdentifierStart(c)) {
                 int end = identifierEnd(text, i);
                 String word = text.substring(i, end);
@@ -171,7 +212,140 @@ public final class SyntaxHighlighter {
                 i++;
             }
         }
-        return spans;
+    }
+
+    /**
+     * Scans HTML or XML. Text between tags is never coloured; everything else is found by looking for the next
+     * {@code <}. Each construct consumes what it scans, so the whole pass stays linear.
+     */
+    private static void markup(String text, boolean html, List<Span> spans) {
+        int n = text.length();
+        int i = 0;
+        while (i < n) {
+            i = text.indexOf('<', i);
+            if (i < 0) return;
+            if (text.startsWith("<!--", i)) {
+                i = add(spans, i, endOf(text, "-->", i + 4), "comment");
+            } else if (text.startsWith("<![CDATA[", i)) {
+                i = add(spans, i, endOf(text, "]]>", i + 9), "string");
+            } else if (text.startsWith("<?", i)) {
+                i = add(spans, i, endOf(text, "?>", i + 2), "annotation");
+            } else if (text.startsWith("<!", i)) {
+                i = add(spans, i, endOf(text, ">", i + 2), "annotation");
+            } else if (i + 1 < n && isNameStart(text.charAt(i + 1))) {
+                int nameFrom = i + 1;
+                i = tag(text, nameFrom, spans);
+                boolean selfClosed = i >= 2 && text.charAt(i - 1) == '>' && text.charAt(i - 2) == '/';
+                if (html && !selfClosed) {
+                    String name = text.substring(nameFrom, nameEnd(text, nameFrom)).toLowerCase(Locale.ROOT);
+                    if (name.equals("script") || name.equals("style")) i = rawText(text, i, name, spans);
+                }
+            } else if (i + 2 < n && text.charAt(i + 1) == '/' && isNameStart(text.charAt(i + 2))) {
+                i = tag(text, i + 2, spans);
+            } else {
+                i++;
+            }
+        }
+    }
+
+    /**
+     * Colours one tag whose name starts at {@code nameFrom} (just after {@code <} or {@code </}): the name as a keyword,
+     * attribute names as types and quoted values as strings. Returns the index just after the closing {@code >}, or
+     * the end of the text when the tag is never closed. Quoted values may span lines, as they do in a browser.
+     */
+    private static int tag(String text, int nameFrom, List<Span> spans) {
+        int n = text.length();
+        int i = add(spans, nameFrom, nameEnd(text, nameFrom), "keyword");
+        while (i < n) {
+            char c = text.charAt(i);
+            if (c == '>') return i + 1;
+            if (c == '"' || c == '\'') {
+                i = add(spans, i, endOf(text, String.valueOf(c), i + 1), "string");
+            } else if (isNameStart(c)) {
+                i = add(spans, i, nameEnd(text, i), "type");
+            } else if (c == '=') {
+                i++;
+                while (i < n && Character.isWhitespace(text.charAt(i))) i++;
+                if (i < n && text.charAt(i) != '"' && text.charAt(i) != '\'') { // an unquoted value is left uncoloured
+                    while (i < n && text.charAt(i) != '>' && !Character.isWhitespace(text.charAt(i))) i++;
+                }
+            } else {
+                i++;
+            }
+        }
+        return n;
+    }
+
+    /**
+     * Handles the content of a {@code <script>} or {@code <style>} element that starts at {@code from}: script is
+     * highlighted as JavaScript, style is skipped so its {@code <} and quotes cannot be mistaken for markup. Returns
+     * where the content ends, the start of the closing tag (or the end of the text).
+     */
+    private static int rawText(String text, int from, String name, List<Span> spans) {
+        int close = indexOfIgnoreCase(text, "</" + name, from);
+        int end = close < 0 ? text.length() : close;
+        if (name.equals("script")) {
+            for (Span span : spansIn(text.substring(from, end), Language.JAVASCRIPT)) spans.add(new Span(span.start() + from, span.end() + from, span.style()));
+        }
+        return end;
+    }
+
+    /** Index of the first {@code <}-led occurrence of {@code needle} at or after {@code from}, ignoring case, or -1. */
+    private static int indexOfIgnoreCase(String text, String needle, int from) {
+        for (int i = text.indexOf('<', from); i >= 0; i = text.indexOf('<', i + 1)) {
+            if (text.regionMatches(true, i, needle, 0, needle.length())) return i;
+        }
+        return -1;
+    }
+
+    /** End (exclusive) of the construct closed by {@code close}, or the end of the text when it is never closed. */
+    private static int endOf(String text, String close, int from) {
+        int at = text.indexOf(close, from);
+        return at < 0 ? text.length() : at + close.length();
+    }
+
+    private static boolean isNameStart(char c) { return Character.isLetter(c) || c == '_' || c == ':'; }
+
+    private static int nameEnd(String text, int from) {
+        int i = from, n = text.length();
+        while (i < n && (Character.isLetterOrDigit(text.charAt(i)) || "-_:.".indexOf(text.charAt(i)) >= 0)) i++;
+        return i;
+    }
+
+    /**
+     * End (exclusive) of a triple quoted string that opens at {@code start}, or the end of the text when it is never
+     * closed. Python honours a backslash escape inside the string; Java text blocks are matched without regard to it.
+     */
+    private static int tripleEnd(String text, int start, char quote, boolean escapes) {
+        String triple = quote == '"' ? "\"\"\"" : "'''";
+        if (!escapes) return endOf(text, triple, start + 3);
+        int n = text.length();
+        for (int i = start + 3; i < n; i++) {
+            if (text.charAt(i) == '\\') i++;
+            else if (text.startsWith(triple, i)) return i + 3;
+        }
+        return n;
+    }
+
+    /**
+     * Length of the Python string prefix ({@code r}, {@code b}, {@code f}, {@code u} or a two letter mix) that sits
+     * directly before the quote at {@code quote}, so {@code f"..."} is coloured as one string. Zero when the letters
+     * before the quote are the end of a longer word, such as {@code bar"x"}.
+     */
+    private static int stringPrefixLength(String text, int quote) {
+        for (int length = 2; length >= 1; length--) {
+            int from = quote - length;
+            if (from < 0 || from > 0 && Character.isJavaIdentifierPart(text.charAt(from - 1))) continue;
+            if (PYTHON_STRING_PREFIXES.contains(text.substring(from, quote).toLowerCase(Locale.ROOT))) return length;
+        }
+        return 0;
+    }
+
+    /** End of a dotted name such as {@code app.route}, starting with an identifier at {@code from}. */
+    private static int dottedEnd(String text, int from) {
+        int i = identifierEnd(text, from), n = text.length();
+        while (i + 1 < n && text.charAt(i) == '.' && Character.isJavaIdentifierStart(text.charAt(i + 1))) i = identifierEnd(text, i + 1);
+        return i;
     }
 
     private static int add(List<Span> spans, int start, int end, String style) {
