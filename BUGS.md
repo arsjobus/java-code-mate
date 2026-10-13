@@ -21,7 +21,8 @@ Known issues for the initial foundation.
 - [ ] The JavaFX user interface (`App`, `ui/*`) has no automated tests; it is covered by manual and smoke checks (see HARDENING.md).
 - [ ] There is no Git integration.
 - [ ] AI integration is documentation-only at this stage.
-- [ ] Cross-platform packaging has not yet been established.
+- [ ] Cross-platform installers have not yet been established. The app icon is built in (drawn in code) and `IconExporter` writes `icon.ico`, `icon.icns` and `icon.png` for a packager such as `jpackage`, but there is no packaging configuration yet.
+- [ ] App icon: a custom `app.icon` must be a PNG, JPEG or GIF (`.ico`/`.icns` cannot be read). The macOS Dock icon is set through `java.awt.Taskbar`, and the window icon through JavaFX; neither has been checked on all three operating systems yet, and a missing Dock integration is ignored silently (the window icon still applies).
 
 ## Reporting
 

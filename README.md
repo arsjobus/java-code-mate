@@ -63,6 +63,18 @@ mvn javafx:run
 mvn clean package
 ```
 
+## App icon
+
+The icon is drawn in code, so it is the same on Windows, macOS and Linux. To use your own, set `app.icon` in the user
+settings to a PNG, JPEG or GIF (see `CUSTOMIZATION.md`). To get the built-in icon as files for a native packager:
+
+```
+mvn compile
+java -cp target/classes com.code_mate.icon.IconExporter packaging/icons
+```
+
+This writes `icon.ico` (Windows), `icon.icns` (macOS) and `icon.png` (Linux).
+
 ## Project structure
 
 ```text

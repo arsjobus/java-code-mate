@@ -4,6 +4,7 @@ import com.code_mate.build.BuildSystem;
 import com.code_mate.editor.Indentation;
 import com.code_mate.editor.SyntaxHighlighter;
 import com.code_mate.editor.TextSearch;
+import com.code_mate.icon.AppIcon;
 import com.code_mate.io.CrashLog;
 import com.code_mate.io.FileIO;
 import com.code_mate.io.ProjectFiles;
@@ -126,11 +127,14 @@ public final class App extends Application {
     private final Map<Tab, String> recoveryIds = new HashMap<>();
     private final java.util.concurrent.ExecutorService recoveryWriter = java.util.concurrent.Executors.newSingleThreadExecutor(r -> { Thread t = new Thread(r, "recovery-writer"); t.setDaemon(true); return t; });
     private javafx.animation.Timeline autosave;
+    private Stage primaryStage;
 
     @Override public void start(Stage stage) {
         CrashLog.install(settings.userFile().getParent().resolve("crashes"), report -> Platform.runLater(() ->
             status.setText(report == null ? "An unexpected error occurred." : "An unexpected error occurred; a report was saved to " + report)));
+        this.primaryStage = stage;
         stage.setTitle("Code Mate");
+        applyIcon();
         projectTree.setShowRoot(true);
         projectTree.setCellFactory(tree -> new TreeCell<>() {
             {   // right-clicking a row selects it first, so the menu always acts on the row under the pointer
@@ -389,6 +393,7 @@ public final class App extends Application {
     /** Re-applies everything derived from settings: editor preferences, theme, shortcuts, and the project tree. */
     private void applySettings() {
         editorPrefs = EditorPreferences.from(settings);
+        applyIcon();
         treeExcludes = parseNames(settings.get("tree.exclude", DEFAULT_TREE_EXCLUDES));
         refreshThemes();
         applyTheme();
@@ -734,8 +739,11 @@ public final class App extends Application {
         // Filters, not handlers: they must run before RichTextFX's own key handling, and Tab also arrives as a separate
         // KEY_TYPED event with "\t" that consuming KEY_PRESSED does not stop - it would add a stray tab character.
         editor.addEventFilter(KeyEvent.KEY_PRESSED, this::handleTab);
+        editor.addEventFilter(KeyEvent.KEY_PRESSED, this::handleEnter);
         editor.addEventFilter(KeyEvent.KEY_TYPED, e -> {
             if (swallowTypedTab && "\t".equals(e.getCharacter())) { swallowTypedTab = false; e.consume(); }
+            // Enter is the same story as Tab: without this the typed event adds a second line break after ours.
+            if (swallowTypedEnter && Indentation.isLineBreak(e.getCharacter())) { swallowTypedEnter = false; e.consume(); }
         });
         editor.addEventHandler(KeyEvent.KEY_TYPED, e -> {
             if (hasExtraCarets(editor) && !e.getCharacter().isEmpty() && !e.isControlDown() && !e.isAltDown() && !e.isMetaDown()) {
@@ -745,6 +753,27 @@ public final class App extends Application {
             }
         });
         return editor;
+    }
+
+    /**
+     * Window, taskbar and Dock icon: the {@code app.icon} image when it can be read, otherwise the built-in one.
+     * JavaFX's stage icons cover Windows and Linux; macOS takes its Dock icon from {@code java.awt.Taskbar}.
+     */
+    private void applyIcon() {
+        AppIcon.Result icon = AppIcon.resolve(settings.get(AppIcon.SETTING, ""));
+        if (primaryStage != null) {
+            List<javafx.scene.image.Image> images = new ArrayList<>();
+            for (var image : icon.images()) {
+                try { images.add(new javafx.scene.image.Image(new java.io.ByteArrayInputStream(AppIcon.png(image)))); }
+                catch (IOException ex) { /* skip this size */ }
+            }
+            primaryStage.getIcons().setAll(images);
+        }
+        try {
+            if (java.awt.Taskbar.isTaskbarSupported() && java.awt.Taskbar.getTaskbar().isSupported(java.awt.Taskbar.Feature.ICON_IMAGE))
+                java.awt.Taskbar.getTaskbar().setIconImage(icon.images().get(icon.images().size() - 1));
+        } catch (Throwable ignored) { /* no Dock/taskbar integration here: the stage icons still apply */ }
+        if (icon.warning() != null) status.setText(icon.warning());
     }
 
     private boolean swallowTypedTab;
@@ -766,15 +795,24 @@ public final class App extends Application {
         swallowTypedTab = true; e.consume();
     }
 
+    private boolean swallowTypedEnter;
+
+    /** With auto-indent on, Enter inserts one line break plus the right indentation (see {@link Indentation#newline}). */
+    private void handleEnter(KeyEvent e) {
+        swallowTypedEnter = false;
+        if (!(e.getSource() instanceof CodeArea editor) || e.getCode() != KeyCode.ENTER || !editorPrefs.autoIndent()) return;
+        if (e.isControlDown() || e.isAltDown() || e.isMetaDown() || hasExtraCarets(editor)) return;
+        IndexRange selection = editor.getSelection();
+        Indentation.Edit edit = Indentation.newline(editor.getText(), selection.getStart(), selection.getEnd(), editorPrefs.indentUnit());
+        editor.replaceText(edit.start(), edit.end(), edit.replacement());
+        editor.selectRange(edit.selectionStart(), edit.selectionEnd());
+        editor.requestFollowCaret();
+        swallowTypedEnter = true; e.consume();
+    }
+
     private void handleKeyPressed(KeyEvent e) {
         if (!(e.getSource() instanceof CodeArea editor)) return;
-        if (e.getCode() == KeyCode.ENTER && editorPrefs.autoIndent()) {
-            String line = editor.getParagraph(editor.getCurrentParagraph()).getText();
-            String indent = line.replaceAll("\\S.*$", "");
-            String trimmed = line.stripTrailing();
-            if (trimmed.endsWith("{") || trimmed.endsWith("[") || trimmed.endsWith("(")) indent += editorPrefs.indentUnit();
-            editor.insertText(editor.getCaretPosition(), "\n" + indent); e.consume();
-        } else if ((e.getCode() == KeyCode.BACK_SPACE || e.getCode() == KeyCode.DELETE) && hasExtraCarets(editor)) {
+        if ((e.getCode() == KeyCode.BACK_SPACE || e.getCode() == KeyCode.DELETE) && hasExtraCarets(editor)) {
             boolean back = e.getCode() == KeyCode.BACK_SPACE;
             List<Integer> positions = extraCarets.get(editor).stream().map(CaretNode::getPosition).sorted(Comparator.reverseOrder()).toList();
             for (int p : positions) {

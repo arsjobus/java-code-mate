@@ -14,6 +14,10 @@ public final class SettingsTemplates {
             # Theme: light, dark, high-contrast, or the name of a .css file in the themes folder next to this file.
             #theme=light
 
+            # Application icon: path to a PNG, JPEG or GIF (square, 512x512 or larger looks best). "~" is your home folder.
+            # Leave it out to use the built-in icon. Applies to the window, taskbar and macOS Dock.
+            #app.icon=~/Pictures/code-mate.png
+
             # Editor
             #editor.fontFamily=Monospaced
             #editor.fontSize=14

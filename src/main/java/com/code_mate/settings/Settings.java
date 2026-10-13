@@ -59,7 +59,7 @@ public final class Settings {
 
     /** Keys that only the user file may set. */
     public static boolean isUserOnly(String key) {
-        return key.equals("theme") || key.startsWith("key.");
+        return key.equals("theme") || key.equals("app.icon") || key.startsWith("key.");
     }
 
     public Path userFile() { return userFile; }

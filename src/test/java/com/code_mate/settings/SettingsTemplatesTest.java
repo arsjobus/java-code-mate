@@ -20,6 +20,7 @@ class SettingsTemplatesTest {
         assertTrue(everyLineIsCommentedOrBlank(user));
         assertTrue(user.contains("#key.file.save=Ctrl+S"));
         assertTrue(user.contains("#theme=light"));
+        assertTrue(user.contains("#app.icon="));
         assertTrue(everyLineIsCommentedOrBlank(SettingsTemplates.project()));
         assertTrue(SettingsTemplates.project().contains("#tree.exclude=.git,target"));
     }

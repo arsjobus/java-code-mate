@@ -1,7 +1,7 @@
 package com.code_mate.editor;
 
 /**
- * Tab / Shift+Tab behaviour as pure text edits, so it can be tested without JavaFX.
+ * Tab / Shift+Tab / Enter behaviour as pure text edits, so it can be tested without JavaFX.
  *
  * <p>All positions are offsets into the document text. An {@link Edit} replaces {@code [start, end)} with
  * {@code replacement} in one operation (one undo step) and says where the selection should be afterwards,
@@ -76,6 +76,33 @@ public final class Indentation {
             ? selEnd - Math.min(removedFirst, selEnd - first)
             : selEnd - removedFirst - removedMiddle - Math.min(removedLast, selEnd - last);
         return new Edit(first, regionEnd, out.toString(), newStart, newEnd);
+    }
+
+    /**
+     * What Enter does with auto-indent on: replaces the selection (if any) with exactly one line break followed by
+     * the indentation of the line the caret is on, plus one extra level when the text before the caret ends in an
+     * opening bracket. Only the text <em>before</em> the caret counts, so pressing Enter at the start of an indented
+     * line, or in the middle of one, does not invent indentation from text that ends up on the line below.
+     */
+    public static Edit newline(String text, int selStart, int selEnd, String indentUnit) {
+        String before = text.substring(lineStart(text, selStart), selStart);
+        int whitespace = 0;
+        while (whitespace < before.length() && (before.charAt(whitespace) == ' ' || before.charAt(whitespace) == '\t')) whitespace++;
+        String indent = before.substring(0, whitespace);
+        String code = before.stripTrailing();
+        if (code.endsWith("{") || code.endsWith("[") || code.endsWith("(")) indent += indentUnit;
+        String insert = "\n" + indent;
+        int caret = selStart + insert.length();
+        return new Edit(selStart, selEnd, insert, caret, caret);
+    }
+
+    /**
+     * True for the character a KEY_TYPED event carries for the Enter key. Enter arrives twice (pressed, then typed),
+     * and consuming the pressed event does not stop the typed one, so after handling Enter itself the editor must
+     * swallow this one or the line break is inserted a second time.
+     */
+    public static boolean isLineBreak(String typed) {
+        return "\n".equals(typed) || "\r".equals(typed) || "\r\n".equals(typed);
     }
 
     /** On-screen column of {@code pos}, counting a tab as "up to the next tab stop". */

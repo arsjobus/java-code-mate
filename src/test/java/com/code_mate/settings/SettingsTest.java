@@ -99,6 +99,7 @@ class SettingsTest {
     @Test void userOnlyKeys() {
         assertTrue(Settings.isUserOnly("theme"));
         assertTrue(Settings.isUserOnly("key.anything"));
+        assertTrue(Settings.isUserOnly("app.icon"));
         assertFalse(Settings.isUserOnly("editor.tabSize"));
         assertFalse(Settings.isUserOnly("themes"));
     }

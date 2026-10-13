@@ -28,6 +28,7 @@ the editor from starting; the affected value falls back to its default.
 | Key | Default | Where | Meaning |
 | --- | --- | --- | --- |
 | `theme` | `light` | user only | `light`, `dark`, `high-contrast`, or a custom theme name (below). |
+| `app.icon` | built-in icon | user only | Path to a PNG, JPEG or GIF used for the window, taskbar and macOS Dock icon (`~` is your home folder). A missing or unreadable file falls back to the built-in icon and says so in the status bar. |
 | `editor.fontFamily` | `Monospaced` | user, project | Editor font. |
 | `editor.fontSize` | `14` | user, project | 8 to 48. |
 | `editor.tabSize` | `4` | user, project | 1 to 16. Used for Tab, auto-indent and Format Document. |
