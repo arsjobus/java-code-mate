@@ -4,7 +4,7 @@ Known issues for the initial foundation.
 
 ## Current
 
-- [ ] The project tree is a snapshot of the folder: files can be created and deleted from it (right-click), but it cannot rename or move entries, and it does not notice changes made outside the editor until it is refreshed (e.g. by saving settings).
+- [ ] The project tree is a snapshot of the folder: files can be created, renamed, moved (drag onto a folder) and deleted from it, but it does not notice changes made outside the editor until it is refreshed (e.g. by saving settings), and it cannot move several entries at once.
 - [ ] Syntax highlighting is a lexical scanner (no parsing) for Java, Kotlin, JavaScript/TypeScript, C/C++, Go, Rust, PHP, JSON, Python, HTML and XML, chosen by file extension; other files are shown as plain text. Keywords and types come from a short built-in list per language (no contextual keywords such as `get`/`set` or Python's soft keywords `match`/`case`, and no Rust `#[...]` attributes or lifetimes). Python f-string `{...}` expressions are coloured as part of the string. In HTML, `<script>` content is highlighted as JavaScript regardless of its `type`, `<style>` content (CSS) and HTML/XML entities are left uncoloured, and unquoted attribute values are plain. It is switched off above 1 million characters.
 - [ ] The integrated terminal is line-oriented (no PTY): full-screen programs and job control do not work.
 - [ ] Windows terminals: Ctrl+C terminates the command rather than interrupting it, and virtualenv detection is untested.

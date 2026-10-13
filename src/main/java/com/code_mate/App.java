@@ -40,11 +40,14 @@ import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
+import javafx.scene.input.ClipboardContent;
+import javafx.scene.input.Dragboard;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyCodeCombination;
 import javafx.scene.input.KeyCombination;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.input.MouseButton;
+import javafx.scene.input.TransferMode;
 import javafx.scene.layout.*;
 import javafx.stage.DirectoryChooser;
 import javafx.stage.FileChooser;
@@ -127,6 +130,21 @@ public final class App extends Application {
         projectTree.setCellFactory(tree -> new TreeCell<>() {
             {   // right-clicking a row selects it first, so the menu always acts on the row under the pointer
                 setOnContextMenuRequested(event -> { if (!isEmpty() && getTreeItem() != null) projectTree.getSelectionModel().select(getTreeItem()); });
+                // Drag a row onto a folder (or onto a file, meaning the folder it is in) to move it there.
+                setOnDragDetected(event -> {
+                    File file = getItem();
+                    if (isEmpty() || file == null || file.equals(projectDirectory)) return;
+                    Dragboard board = startDragAndDrop(TransferMode.MOVE);
+                    ClipboardContent content = new ClipboardContent(); content.putString(file.getAbsolutePath());
+                    board.setContent(content); event.consume();
+                });
+                setOnDragOver(event -> { if (dropTarget(event.getDragboard(), getItem()) != null) event.acceptTransferModes(TransferMode.MOVE); event.consume(); });
+                setOnDragDropped(event -> {
+                    File source = dragSource(event.getDragboard());
+                    File folder = dropTarget(event.getDragboard(), getItem());
+                    boolean done = source != null && folder != null && moveInTree(source, folder);
+                    event.setDropCompleted(done); event.consume();
+                });
             }
             @Override protected void updateItem(File file, boolean empty) {
                 super.updateItem(file, empty);
@@ -134,17 +152,18 @@ public final class App extends Application {
                 setContextMenu(empty || file == null ? null : treeMenu);
             }
         });
-        MenuItem newFile = new MenuItem("New File..."), newFolder = new MenuItem("New Folder..."), delete = new MenuItem("Delete...");
+        MenuItem newFile = new MenuItem("New File..."), newFolder = new MenuItem("New Folder..."), rename = new MenuItem("Rename..."), delete = new MenuItem("Delete...");
         newFile.setOnAction(e -> createInTree(false));
         newFolder.setOnAction(e -> createInTree(true));
+        rename.setOnAction(e -> renameInTree());
         delete.setOnAction(e -> deleteFromTree());
-        treeMenu.getItems().addAll(newFile, newFolder, new SeparatorMenuItem(), delete);
+        treeMenu.getItems().addAll(newFile, newFolder, new SeparatorMenuItem(), rename, delete);
         // Right-clicking the empty part of the sidebar adds to the project folder itself.
         MenuItem rootFile = new MenuItem("New File..."), rootFolder = new MenuItem("New Folder...");
         rootFile.setOnAction(e -> { projectTree.getSelectionModel().clearSelection(); createInTree(false); });
         rootFolder.setOnAction(e -> { projectTree.getSelectionModel().clearSelection(); createInTree(true); });
         projectTree.setContextMenu(new ContextMenu(rootFile, rootFolder));
-        projectTree.setOnKeyPressed(event -> { if (event.getCode() == KeyCode.DELETE || event.getCode() == KeyCode.BACK_SPACE && event.isShortcutDown()) { deleteFromTree(); event.consume(); } });
+        projectTree.setOnKeyPressed(event -> { if (event.getCode() == KeyCode.F2) { renameInTree(); event.consume(); return; } if (event.getCode() == KeyCode.DELETE || event.getCode() == KeyCode.BACK_SPACE && event.isShortcutDown()) { deleteFromTree(); event.consume(); } });
         projectTree.setOnMouseClicked(event -> {
             if (event.getButton() == MouseButton.PRIMARY && event.getClickCount() == 2) {
                 TreeItem<File> item = projectTree.getSelectionModel().getSelectedItem();
@@ -535,6 +554,81 @@ public final class App extends Application {
         }
         for (Tab tab : open) if (!Files.exists(((File) tab.getUserData()).toPath())) tabs.getTabs().remove(tab);
         refreshProjectTree();
+    }
+
+    /** The row that was dragged, if the drag carries the path of something inside the project. */
+    private File dragSource(Dragboard board) {
+        if (projectDirectory == null || !board.hasString()) return null;
+        File file = new File(board.getString());
+        return ProjectFiles.isInside(projectDirectory.toPath(), file.toPath()) && !file.toPath().toAbsolutePath().normalize().equals(projectDirectory.toPath().toAbsolutePath().normalize()) ? file : null;
+    }
+
+    /** The folder a drop on {@code row} would move into, or {@code null} if dropping there makes no sense. */
+    private File dropTarget(Dragboard board, File row) {
+        File source = dragSource(board);
+        if (source == null || row == null) return null;
+        File folder = ProjectFiles.directoryFor(row.toPath()).toFile();
+        return source.isDirectory() && ProjectFiles.isInside(source.toPath(), folder.toPath()) ? null : folder;
+    }
+
+    /** Rename the selected file or folder. Open tabs follow it; nothing is ever overwritten. */
+    private void renameInTree() {
+        if (!requireProject("Rename")) return;
+        TreeItem<File> selected = projectTree.getSelectionModel().getSelectedItem();
+        if (selected == null) { status.setText("Select a file or folder to rename first."); return; }
+        File target = selected.getValue();
+        if (target.equals(projectDirectory)) { status.setText("The project folder itself cannot be renamed from here."); return; }
+        String what = target.isDirectory() ? "folder" : "file";
+        String name = target.getName();
+        while (true) {
+            TextInputDialog dialog = new TextInputDialog(name);
+            dialog.setTitle("Rename " + what);
+            dialog.setHeaderText("Rename " + what + " \"" + target.getName() + "\"");
+            dialog.setContentText("New name:");
+            Optional<String> answer = dialog.showAndWait();
+            if (answer.isEmpty()) return;
+            name = answer.get();
+            try {
+                Path renamed = ProjectFiles.rename(projectDirectory.toPath(), target.toPath(), name);
+                afterMove(target.toPath(), renamed);
+                status.setText(renamed.equals(target.toPath().toAbsolutePath().normalize()) ? "Name unchanged" : "Renamed to: " + displayPath(renamed.toFile()));
+                return;
+            } catch (IOException ex) {
+                showError("Could not rename " + what, ex.getMessage()); // then ask again, keeping what was typed
+            }
+        }
+    }
+
+    /** Moves {@code source} into {@code folder} (drag and drop). Returns whether something moved. */
+    private boolean moveInTree(File source, File folder) {
+        try {
+            Path moved = ProjectFiles.moveInto(projectDirectory.toPath(), source.toPath(), folder.toPath());
+            if (moved.equals(source.toPath().toAbsolutePath().normalize())) return false; // dropped where it already is
+            afterMove(source.toPath(), moved);
+            status.setText("Moved to: " + displayPath(moved.toFile()));
+            return true;
+        } catch (IOException ex) {
+            showError("Could not move", ex.getMessage());
+            return false;
+        }
+    }
+
+    /** After {@code from} became {@code to}: repoint every open tab inside it, tell the language servers, and redraw the tree. */
+    private void afterMove(Path from, Path to) {
+        for (Tab tab : new ArrayList<>(tabs.getTabs())) {
+            if (!(tab.getUserData() instanceof File old)) continue;
+            Path now = ProjectFiles.relocated(from, to, old.toPath());
+            if (now == null || now.equals(old.toPath().toAbsolutePath().normalize())) continue;
+            language.close(old);
+            tab.setUserData(now.toFile());
+            updateTabTitle(tab);
+            if (tab.getContent() instanceof VirtualizedScrollPane<?> pane && pane.getContent() instanceof CodeArea editor) {
+                language.open(now.toFile(), editor.getText());
+                highlight(editor); // a new extension can change the language
+            }
+        }
+        refreshProjectTree();
+        revealInTree(to.toFile());
     }
 
     private static Set<String> parseNames(String commaSeparated) {

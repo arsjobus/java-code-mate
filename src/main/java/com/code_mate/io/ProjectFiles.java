@@ -11,9 +11,10 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 
 /**
- * Creating and deleting files and folders in the project tree. JavaFX-free, so the rules are tested without a display.
+ * Creating, renaming, moving and deleting files and folders in the project tree. JavaFX-free, so the rules are tested
+ * without a display.
  *
- * <p>Creating never overwrites anything. Deleting is the dangerous half, so it is strict: it refuses the project
+ * <p>Creating, renaming and moving never overwrite anything. Deleting is the dangerous half, so it is strict: it refuses the project
  * folder itself, anything outside the project (including paths that escape through a symbolic link), and it never
  * follows a symbolic link, so deleting a link removes the link and leaves what it points at alone.
  */
@@ -116,5 +117,80 @@ public final class ProjectFiles {
                 return FileVisitResult.CONTINUE;
             }
         });
+    }
+
+    /** Gives {@code source} a new name, keeping it in the same folder. Never overwrites; see {@link #move}. */
+    public static Path rename(Path projectRoot, Path source, String newName) throws IOException {
+        String problem = nameProblem(newName);
+        if (problem != null) throw new IOException(problem);
+        Path from = source.toAbsolutePath().normalize();
+        Path parent = from.getParent();
+        if (parent == null) throw new IOException("The project folder itself cannot be renamed from here.");
+        return move(projectRoot, from, parent, newName.strip());
+    }
+
+    /** Moves {@code source} into {@code directory}, keeping its name. Never overwrites; see {@link #move}. */
+    public static Path moveInto(Path projectRoot, Path source, Path directory) throws IOException {
+        Path from = source.toAbsolutePath().normalize();
+        Path name = from.getFileName();
+        if (name == null) throw new IOException("The project folder itself cannot be moved from here.");
+        return move(projectRoot, from, directory, name.toString());
+    }
+
+    /**
+     * Moves {@code source} to {@code directory/name}. Refuses the project folder itself, anything outside
+     * {@code projectRoot} (as the source or as the destination, including paths that escape through a symbolic link),
+     * and a folder moved into itself. It never overwrites: if something is already there it fails, except that a
+     * change of letter case alone is allowed on a case-insensitive file system. Symbolic links are moved, never
+     * followed. Moving something to where it already is does nothing and returns that path.
+     */
+    public static Path move(Path projectRoot, Path source, Path directory, String name) throws IOException {
+        String problem = nameProblem(name);
+        if (problem != null) throw new IOException(problem);
+        Path root = projectRoot.toAbsolutePath().normalize();
+        Path from = source.toAbsolutePath().normalize();
+        Path toDir = directory.toAbsolutePath().normalize();
+        if (from.equals(root)) throw new IOException("The project folder itself cannot be moved or renamed from here.");
+        if (!from.startsWith(root)) throw new IOException(from.getFileName() + " is not inside the project, so it will not be moved.");
+        if (!toDir.startsWith(root)) throw new IOException("The destination is not inside the project, so nothing will be moved there.");
+        if (!Files.exists(from, LinkOption.NOFOLLOW_LINKS)) throw new NoSuchFileException(from.toString(), null, from.getFileName() + " no longer exists.");
+        if (!Files.isDirectory(toDir)) throw new IOException(toDir.getFileName() + " is not a folder, so nothing can be moved into it.");
+        // Symbolic links in the middle of either path could lead out of the project; check where both really are.
+        Path realRoot = root.toRealPath();
+        if (!from.getParent().toRealPath().startsWith(realRoot)) throw new IOException(from.getFileName() + " is not inside the project, so it will not be moved.");
+        if (!toDir.toRealPath().startsWith(realRoot)) throw new IOException("The destination is not inside the project, so nothing will be moved there.");
+        if (Files.isDirectory(from, LinkOption.NOFOLLOW_LINKS) && toDir.startsWith(from))
+            throw new IOException("A folder cannot be moved into itself.");
+        Path target = toDir.resolve(name.strip());
+        if (target.equals(from)) return from; // nothing to do
+        boolean caseOnly = Files.exists(target, LinkOption.NOFOLLOW_LINKS) && onlyCaseDiffers(from, target);
+        if (Files.exists(target, LinkOption.NOFOLLOW_LINKS) && !caseOnly)
+            throw new IOException("\"" + target.getFileName() + "\" already exists in " + toDir.getFileName() + ".");
+        if (caseOnly) { // Files.move silently does nothing when source and target are the same file, so go through a temporary name
+            Path temp = toDir.resolve(".rename-" + System.nanoTime() + ".tmp");
+            Files.move(from, temp);
+            try { return Files.move(temp, target); } catch (IOException ex) { Files.move(temp, from); throw ex; } // put it back if the second step fails
+        }
+        return Files.move(from, target); // no REPLACE_EXISTING: if something appears meanwhile this fails rather than overwrites
+    }
+
+    /** True when {@code a} and {@code b} are the same existing entry whose names differ only in letter case (case-insensitive file system). */
+    static boolean onlyCaseDiffers(Path a, Path b) throws IOException {
+        return a.getParent().equals(b.getParent())
+            && !a.getFileName().toString().equals(b.getFileName().toString())
+            && a.getFileName().toString().equalsIgnoreCase(b.getFileName().toString())
+            && Files.isSameFile(a, b);
+    }
+
+    /**
+     * Where {@code file} ends up after {@code oldBase} was moved to {@code newBase}: the same path below the new
+     * location, {@code newBase} itself if {@code file} is {@code oldBase}, or {@code null} if {@code file} was not
+     * inside {@code oldBase}. Compares paths only; used to repoint open editor tabs after a rename or move.
+     */
+    public static Path relocated(Path oldBase, Path newBase, Path file) {
+        Path old = oldBase.toAbsolutePath().normalize();
+        Path f = file.toAbsolutePath().normalize();
+        if (!f.startsWith(old)) return null;
+        return newBase.toAbsolutePath().normalize().resolve(old.relativize(f).toString()).normalize();
     }
 }

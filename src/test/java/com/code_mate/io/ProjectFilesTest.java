@@ -265,4 +265,339 @@ class ProjectFilesTest {
         ProjectFiles.delete(project, folder);
         try (var s = Files.list(project)) { assertEquals(0, s.count()); }
     }
+
+    // ---- rename ----
+
+    @Test void renamesAFileInPlaceKeepingItsContent() throws IOException {
+        Path f = Files.writeString(project.resolve("Old.java"), "class Old {}");
+        Path renamed = ProjectFiles.rename(project, f, "New.java");
+        assertEquals(project.resolve("New.java"), renamed);
+        assertFalse(Files.exists(f));
+        assertEquals("class Old {}", Files.readString(renamed));
+    }
+
+    @Test void renamesAFolderWithEverythingInIt() throws IOException {
+        Path folder = Files.createDirectories(project.resolve("old/deep"));
+        Files.writeString(folder.resolve("x.txt"), "x");
+        Path renamed = ProjectFiles.rename(project, project.resolve("old"), "fresh");
+        assertEquals(project.resolve("fresh"), renamed);
+        assertFalse(Files.exists(project.resolve("old")));
+        assertEquals("x", Files.readString(project.resolve("fresh/deep/x.txt")));
+    }
+
+    @Test void renameIgnoresSurroundingSpacesAndUnnormalizedPaths() throws IOException {
+        Files.createDirectories(project.resolve("a"));
+        Path f = Files.createFile(project.resolve("a/f.txt"));
+        Path renamed = ProjectFiles.rename(project, project.resolve("a/../a/f.txt"), "  g.txt ");
+        assertEquals(project.resolve("a/g.txt"), renamed);
+        assertFalse(Files.exists(f));
+    }
+
+    @Test void renameToTheSameNameDoesNothing() throws IOException {
+        Path f = Files.writeString(project.resolve("same.txt"), "x");
+        assertEquals(f, ProjectFiles.rename(project, f, "same.txt"));
+        assertEquals("x", Files.readString(f));
+    }
+
+    @Test void renameNeverOverwritesAnExistingFileOrFolder() throws IOException {
+        Path a = Files.writeString(project.resolve("a.txt"), "A");
+        Files.writeString(project.resolve("b.txt"), "B");
+        Files.createDirectory(project.resolve("dir"));
+        IOException ex = assertThrows(IOException.class, () -> ProjectFiles.rename(project, a, "b.txt"));
+        assertTrue(ex.getMessage().contains("b.txt") && ex.getMessage().contains("already exists"), ex.getMessage());
+        assertThrows(IOException.class, () -> ProjectFiles.rename(project, a, "dir"));
+        assertEquals("A", Files.readString(a));
+        assertEquals("B", Files.readString(project.resolve("b.txt")));
+    }
+
+    @Test void renameToABrokenLinkNameCountsAsExisting() throws IOException {
+        Path a = Files.writeString(project.resolve("a.txt"), "A");
+        link(project.resolve("dangling"), project.resolve("nowhere"));
+        assertThrows(IOException.class, () -> ProjectFiles.rename(project, a, "dangling"));
+        assertEquals("A", Files.readString(a));
+        assertFalse(Files.exists(project.resolve("nowhere")));
+    }
+
+    @Test void renameRefusesBadNamesAndLeavesTheFileAlone() throws IOException {
+        Path f = Files.writeString(project.resolve("f.txt"), "x");
+        for (String bad : new String[] {"", "  ", "..", "a/b", "a\\b", "tab\there"})
+            assertThrows(IOException.class, () -> ProjectFiles.rename(project, f, bad), bad);
+        assertEquals("x", Files.readString(f));
+    }
+
+    @Test void changingOnlyTheLetterCaseIsAllowed() throws IOException {
+        Path f = Files.writeString(project.resolve("readme.md"), "x");
+        Path renamed = ProjectFiles.rename(project, f, "README.md");
+        assertEquals(project.resolve("README.md"), renamed);
+        try (var names = Files.list(project)) { // exactly one entry, with the new spelling, on any file system
+            assertEquals(java.util.List.of("README.md"), names.map(p -> p.getFileName().toString()).toList());
+        }
+    }
+
+    @Test void caseOnlyRenameIsNotAnOverwriteOnACaseInsensitiveFileSystem() throws IOException {
+        Path probe = Files.createFile(project.resolve("Probe"));
+        assumeTrue(Files.exists(project.resolve("pROBE")), "this file system is case-sensitive");
+        Path renamed = ProjectFiles.rename(project, probe, "pROBE");
+        assertEquals("pROBE", renamed.getFileName().toString());
+        try (var names = Files.list(project)) { assertEquals(java.util.List.of("pROBE"), names.map(p -> p.getFileName().toString()).toList()); }
+    }
+
+    @Test void renamingOverADifferentFileThatDiffersOnlyInCaseIsNeverAnOverwrite() throws IOException {
+        Path a = Files.writeString(project.resolve("a.txt"), "A");
+        Files.writeString(project.resolve("b.txt"), "B");
+        try {
+            ProjectFiles.rename(project, a, "B.TXT");
+        } catch (IOException expectedOnCaseInsensitiveFileSystems) { /* B.TXT is b.txt there */ }
+        assertEquals("B", Files.readString(project.resolve("b.txt"))); // b.txt's content survives on any file system
+    }
+
+    @Test void renameRefusesTheProjectFolderItself() throws IOException {
+        Files.createFile(project.resolve("keep.txt"));
+        IOException ex = assertThrows(IOException.class, () -> ProjectFiles.rename(project, project, "other"));
+        assertTrue(ex.getMessage().contains("project folder itself"), ex.getMessage());
+        assertThrows(IOException.class, () -> ProjectFiles.rename(project, project.resolve("sub/.."), "other"));
+        assertTrue(Files.exists(project.resolve("keep.txt")));
+    }
+
+    @Test void renameRefusesAFileSystemRoot() {
+        Path root = dir.toAbsolutePath().getRoot();
+        IOException ex = assertThrows(IOException.class, () -> ProjectFiles.rename(project, root, "x"));
+        assertTrue(ex.getMessage().contains("project folder itself"), ex.getMessage());
+    }
+
+    @Test void renameRefusesAnythingOutsideTheProject() throws IOException {
+        Path outside = Files.writeString(dir.resolve("outside.txt"), "safe");
+        Path sibling = Files.createDirectory(dir.resolve("project-two"));
+        IOException ex = assertThrows(IOException.class, () -> ProjectFiles.rename(project, outside, "renamed.txt"));
+        assertTrue(ex.getMessage().contains("not inside the project"), ex.getMessage());
+        assertThrows(IOException.class, () -> ProjectFiles.rename(project, sibling, "x")); // shares a name prefix, is not inside
+        assertThrows(IOException.class, () -> ProjectFiles.rename(project, project.resolve("../outside.txt"), "renamed.txt"));
+        assertEquals("safe", Files.readString(outside));
+        assertFalse(Files.exists(dir.resolve("renamed.txt")));
+    }
+
+    @Test void renameReportsAFileThatIsAlreadyGone() {
+        NoSuchFileException ex = assertThrows(NoSuchFileException.class, () -> ProjectFiles.rename(project, project.resolve("ghost.txt"), "x"));
+        assertTrue(ex.getMessage().contains("ghost.txt"), ex.getMessage());
+    }
+
+    @Test void renamingALinkRenamesTheLinkAndNotWhatItPointsAt() throws IOException {
+        Path outside = Files.createDirectories(dir.resolve("outside"));
+        Path precious = Files.writeString(outside.resolve("precious.txt"), "safe");
+        link(project.resolve("link"), outside);
+        Path renamed = ProjectFiles.rename(project, project.resolve("link"), "alias");
+        assertTrue(Files.isSymbolicLink(renamed));
+        assertFalse(Files.exists(project.resolve("link"), java.nio.file.LinkOption.NOFOLLOW_LINKS));
+        assertEquals("safe", Files.readString(precious));
+        assertTrue(Files.isDirectory(outside));
+    }
+
+    @Test void renameThroughALinkThatLeadsOutsideIsRefused() throws IOException {
+        Path outside = Files.createDirectories(dir.resolve("outside"));
+        Path precious = Files.writeString(outside.resolve("precious.txt"), "safe");
+        link(project.resolve("link"), outside);
+        IOException ex = assertThrows(IOException.class, () -> ProjectFiles.rename(project, project.resolve("link/precious.txt"), "taken.txt"));
+        assertTrue(ex.getMessage().contains("not inside the project"), ex.getMessage());
+        assertEquals("safe", Files.readString(precious));
+        assertFalse(Files.exists(outside.resolve("taken.txt")));
+    }
+
+    // ---- move ----
+
+    @Test void movesAFileIntoAFolder() throws IOException {
+        Path folder = Files.createDirectory(project.resolve("src"));
+        Path f = Files.writeString(project.resolve("A.java"), "class A {}");
+        Path moved = ProjectFiles.moveInto(project, f, folder);
+        assertEquals(folder.resolve("A.java"), moved);
+        assertFalse(Files.exists(f));
+        assertEquals("class A {}", Files.readString(moved));
+    }
+
+    @Test void movesAFolderWithEverythingInItIntoAnother() throws IOException {
+        Files.createDirectories(project.resolve("pkg/sub"));
+        Files.writeString(project.resolve("pkg/sub/x.txt"), "x");
+        Path dest = Files.createDirectory(project.resolve("dest"));
+        Path moved = ProjectFiles.moveInto(project, project.resolve("pkg"), dest);
+        assertEquals(dest.resolve("pkg"), moved);
+        assertEquals("x", Files.readString(project.resolve("dest/pkg/sub/x.txt")));
+        assertFalse(Files.exists(project.resolve("pkg")));
+    }
+
+    @Test void movesBackUpToTheProjectFolder() throws IOException {
+        Path folder = Files.createDirectory(project.resolve("src"));
+        Path f = Files.writeString(folder.resolve("A.java"), "x");
+        assertEquals(project.resolve("A.java"), ProjectFiles.moveInto(project, f, project));
+    }
+
+    @Test void movingIntoTheFolderItIsAlreadyInDoesNothing() throws IOException {
+        Path f = Files.writeString(project.resolve("A.java"), "x");
+        assertEquals(f, ProjectFiles.moveInto(project, f, project));
+        assertEquals(f, ProjectFiles.moveInto(project, project.resolve("./A.java"), project.resolve("sub/..")));
+        assertEquals("x", Files.readString(f));
+    }
+
+    @Test void moveCanRenameAtTheSameTime() throws IOException {
+        Path folder = Files.createDirectory(project.resolve("src"));
+        Path f = Files.writeString(project.resolve("A.java"), "x");
+        assertEquals(folder.resolve("B.java"), ProjectFiles.move(project, f, folder, "B.java"));
+        assertFalse(Files.exists(f));
+    }
+
+    @Test void moveNeverOverwrites() throws IOException {
+        Path folder = Files.createDirectory(project.resolve("src"));
+        Files.writeString(folder.resolve("A.java"), "kept");
+        Path f = Files.writeString(project.resolve("A.java"), "incoming");
+        IOException ex = assertThrows(IOException.class, () -> ProjectFiles.moveInto(project, f, folder));
+        assertTrue(ex.getMessage().contains("A.java") && ex.getMessage().contains("already exists"), ex.getMessage());
+        assertEquals("kept", Files.readString(folder.resolve("A.java")));
+        assertEquals("incoming", Files.readString(f));
+    }
+
+    @Test void moveRefusesAFolderIntoItselfOrBelowItself() throws IOException {
+        Path folder = Files.createDirectories(project.resolve("a/b"));
+        Files.writeString(folder.resolve("x.txt"), "x");
+        IOException ex = assertThrows(IOException.class, () -> ProjectFiles.moveInto(project, project.resolve("a"), project.resolve("a")));
+        assertTrue(ex.getMessage().contains("into itself"), ex.getMessage());
+        assertThrows(IOException.class, () -> ProjectFiles.moveInto(project, project.resolve("a"), folder));
+        assertEquals("x", Files.readString(folder.resolve("x.txt")));
+    }
+
+    @Test void aFolderMayMoveIntoASiblingWhoseNameStartsTheSame() throws IOException {
+        Files.createDirectory(project.resolve("a"));
+        Path sibling = Files.createDirectory(project.resolve("a2"));
+        assertEquals(sibling.resolve("a"), ProjectFiles.moveInto(project, project.resolve("a"), sibling));
+    }
+
+    @Test void moveRefusesTheProjectFolderAndAFileSystemRoot() throws IOException {
+        Path folder = Files.createDirectory(project.resolve("src"));
+        IOException ex = assertThrows(IOException.class, () -> ProjectFiles.moveInto(project, project, folder));
+        assertTrue(ex.getMessage().contains("project folder itself"), ex.getMessage());
+        Path root = dir.toAbsolutePath().getRoot();
+        ex = assertThrows(IOException.class, () -> ProjectFiles.moveInto(project, root, folder));
+        assertTrue(ex.getMessage().contains("project folder itself"), ex.getMessage());
+    }
+
+    @Test void moveRefusesASourceOutsideTheProject() throws IOException {
+        Path outside = Files.writeString(dir.resolve("outside.txt"), "safe");
+        assertThrows(IOException.class, () -> ProjectFiles.moveInto(project, outside, project));
+        assertEquals("safe", Files.readString(outside));
+        assertFalse(Files.exists(project.resolve("outside.txt")));
+    }
+
+    @Test void moveRefusesADestinationOutsideTheProject() throws IOException {
+        Path f = Files.writeString(project.resolve("f.txt"), "x");
+        Path sibling = Files.createDirectory(dir.resolve("project-two"));
+        IOException ex = assertThrows(IOException.class, () -> ProjectFiles.moveInto(project, f, dir));
+        assertTrue(ex.getMessage().contains("destination is not inside the project"), ex.getMessage());
+        assertThrows(IOException.class, () -> ProjectFiles.moveInto(project, f, sibling));
+        assertTrue(Files.exists(f));
+        assertFalse(Files.exists(sibling.resolve("f.txt")));
+    }
+
+    @Test void moveRefusesADestinationThatIsNotAFolder() throws IOException {
+        Path f = Files.writeString(project.resolve("f.txt"), "x");
+        Path other = Files.writeString(project.resolve("other.txt"), "y");
+        IOException ex = assertThrows(IOException.class, () -> ProjectFiles.moveInto(project, f, other));
+        assertTrue(ex.getMessage().contains("not a folder"), ex.getMessage());
+        assertThrows(IOException.class, () -> ProjectFiles.moveInto(project, f, project.resolve("missing")));
+        assertEquals("x", Files.readString(f));
+    }
+
+    @Test void moveReportsASourceThatIsAlreadyGone() {
+        NoSuchFileException ex = assertThrows(NoSuchFileException.class, () -> ProjectFiles.moveInto(project, project.resolve("ghost.txt"), project));
+        assertTrue(ex.getMessage().contains("ghost.txt"), ex.getMessage());
+    }
+
+    @Test void moveRefusesABadName() throws IOException {
+        Path f = Files.writeString(project.resolve("f.txt"), "x");
+        assertThrows(IOException.class, () -> ProjectFiles.move(project, f, project, "a/b"));
+        assertEquals("x", Files.readString(f));
+    }
+
+    @Test void moveIntoAFolderThroughALinkThatLeadsOutsideIsRefused() throws IOException {
+        Path outside = Files.createDirectories(dir.resolve("outside"));
+        Path f = Files.writeString(project.resolve("f.txt"), "x");
+        link(project.resolve("escape"), outside);
+        IOException ex = assertThrows(IOException.class, () -> ProjectFiles.moveInto(project, f, project.resolve("escape")));
+        assertTrue(ex.getMessage().contains("destination is not inside the project"), ex.getMessage());
+        assertTrue(Files.exists(f));
+        assertFalse(Files.exists(outside.resolve("f.txt")));
+    }
+
+    @Test void moveOfAFileReachedThroughALinkThatLeadsOutsideIsRefused() throws IOException {
+        Path outside = Files.createDirectories(dir.resolve("outside"));
+        Path precious = Files.writeString(outside.resolve("precious.txt"), "safe");
+        link(project.resolve("escape"), outside);
+        IOException ex = assertThrows(IOException.class, () -> ProjectFiles.moveInto(project, project.resolve("escape/precious.txt"), project));
+        assertTrue(ex.getMessage().contains("not inside the project"), ex.getMessage());
+        assertEquals("safe", Files.readString(precious));
+        assertFalse(Files.exists(project.resolve("precious.txt")));
+    }
+
+    @Test void movingALinkMovesTheLinkAndNotWhatItPointsAt() throws IOException {
+        Path outside = Files.createDirectories(dir.resolve("outside"));
+        Path precious = Files.writeString(outside.resolve("precious.txt"), "safe");
+        Path folder = Files.createDirectory(project.resolve("src"));
+        link(project.resolve("link"), outside);
+        Path moved = ProjectFiles.moveInto(project, project.resolve("link"), folder);
+        assertTrue(Files.isSymbolicLink(moved));
+        assertEquals("safe", Files.readString(precious));
+        assertTrue(Files.isDirectory(outside));
+    }
+
+    @Test void aFolderLinkPointingAtItsOwnParentIsNotTreatedAsMovingIntoItself() throws IOException {
+        Path folder = Files.createDirectory(project.resolve("src"));
+        link(folder.resolve("loop"), project); // src/loop -> project
+        Path moved = ProjectFiles.moveInto(project, folder.resolve("loop"), project);
+        assertTrue(Files.isSymbolicLink(moved));
+        assertTrue(Files.isDirectory(folder));
+    }
+
+    // ---- relocated (repointing open tabs) ----
+
+    @Test void relocatedMapsAFileBelowAMovedFolder() {
+        Path from = project.resolve("old");
+        Path to = project.resolve("src/new");
+        assertEquals(project.resolve("src/new/a/B.java"), ProjectFiles.relocated(from, to, project.resolve("old/a/B.java")));
+        assertEquals(to, ProjectFiles.relocated(from, to, from));
+        assertEquals(project.resolve("src/new/B.java"), ProjectFiles.relocated(from, to, project.resolve("old/x/../B.java")));
+    }
+
+    @Test void relocatedIsNullForAnythingElse() {
+        Path from = project.resolve("old");
+        Path to = project.resolve("new");
+        assertNull(ProjectFiles.relocated(from, to, project.resolve("older/B.java"))); // a prefix of the text is not a parent
+        assertNull(ProjectFiles.relocated(from, to, project.resolve("B.java")));
+        assertNull(ProjectFiles.relocated(from, to, project));
+    }
+
+    @Test void renameThenRelocatedAgreeOnWhereAnOpenFileWent() throws IOException {
+        Path folder = Files.createDirectories(project.resolve("pkg/sub"));
+        Path open = Files.writeString(folder.resolve("A.java"), "x");
+        Path renamed = ProjectFiles.rename(project, project.resolve("pkg"), "lib");
+        Path where = ProjectFiles.relocated(project.resolve("pkg"), renamed, open);
+        assertEquals(project.resolve("lib/sub/A.java"), where);
+        assertEquals("x", Files.readString(where));
+    }
+
+    // ---- the case-only rule, checked directly so it does not depend on the file system's case rules ----
+
+    @Test void onlyCaseDiffersRecognisesTheSameEntryUnderADifferentSpelling() throws IOException {
+        Path a = Files.writeString(project.resolve("x.txt"), "x");
+        Path b = project.resolve("X.TXT");
+        try { Files.createLink(b, a); } catch (IOException | UnsupportedOperationException | SecurityException ex) { assumeTrue(false, "hard links are not available here"); }
+        assertTrue(ProjectFiles.onlyCaseDiffers(a, b)); // same entry, names differ only in case
+        assertFalse(ProjectFiles.onlyCaseDiffers(a, a)); // identical spelling is not a case change
+    }
+
+    @Test void onlyCaseDiffersIsFalseForDifferentEntriesFoldersOrNames() throws IOException {
+        Path a = Files.writeString(project.resolve("a.txt"), "A");
+        Path other = Files.writeString(project.resolve("A.TXT.copy"), "B");
+        Path upper = Files.writeString(project.resolve("A.TXT"), "C"); // a different file on a case-sensitive file system
+        assertFalse(ProjectFiles.onlyCaseDiffers(a, other)); // different letters
+        if (!Files.isSameFile(a, upper)) assertFalse(ProjectFiles.onlyCaseDiffers(a, upper)); // same letters, different entry
+        Path folder = Files.createDirectory(project.resolve("sub"));
+        Path inFolder = Files.writeString(folder.resolve("A.txt"), "D");
+        assertFalse(ProjectFiles.onlyCaseDiffers(a, inFolder)); // different folders
+    }
 }
