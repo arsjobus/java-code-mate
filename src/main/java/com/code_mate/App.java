@@ -31,6 +31,7 @@ import com.code_mate.ui.ReferencesPanel;
 import com.code_mate.ui.SettingsDialog;
 import com.code_mate.ui.Shortcuts;
 import com.code_mate.ui.TerminalsPanel;
+import com.code_mate.ui.TreeGestures;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.collections.ListChangeListener;
@@ -47,6 +48,7 @@ import javafx.scene.input.KeyCodeCombination;
 import javafx.scene.input.KeyCombination;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.input.MouseButton;
+import javafx.scene.input.MouseEvent;
 import javafx.scene.input.TransferMode;
 import javafx.scene.layout.*;
 import javafx.stage.DirectoryChooser;
@@ -80,6 +82,7 @@ public final class App extends Application {
     private final TabPane tabs = new TabPane();
     private final TreeView<File> projectTree = new TreeView<>();
     private final ContextMenu treeMenu = new ContextMenu();
+    private final TreeGestures treeGestures = new TreeGestures();
     private final Label status = new Label("Ready");
     private final Preferences preferences = Preferences.userNodeForPackage(App.class);
     private final Map<Tab, Boolean> dirty = new HashMap<>();
@@ -130,10 +133,23 @@ public final class App extends Application {
         projectTree.setCellFactory(tree -> new TreeCell<>() {
             {   // right-clicking a row selects it first, so the menu always acts on the row under the pointer
                 setOnContextMenuRequested(event -> { if (!isEmpty() && getTreeItem() != null) projectTree.getSelectionModel().select(getTreeItem()); });
+                // Double-click opens a file. It is decided from the presses on this very row, not from the tree's
+                // selection or JavaFX's click count, so a shaky hand, a drag or a tree rebuild cannot lose or redirect it.
+                addEventFilter(MouseEvent.MOUSE_PRESSED, event -> {
+                    if (event.getButton() != MouseButton.PRIMARY) return;
+                    File row = isEmpty() ? null : getItem();
+                    boolean doubleClick = treeGestures.press(row, System.currentTimeMillis(), event.getScreenX(), event.getScreenY());
+                    if (doubleClick && row.isFile() && getTreeItem() != null) {
+                        projectTree.getSelectionModel().select(getTreeItem());
+                        openFile(row);
+                    }
+                });
                 // Drag a row onto a folder (or onto a file, meaning the folder it is in) to move it there.
                 setOnDragDetected(event -> {
                     File file = getItem();
                     if (isEmpty() || file == null || file.equals(projectDirectory)) return;
+                    // A click with a slightly moving pointer is not a drag; starting one would swallow the click.
+                    if (!treeGestures.dragIntended(event.getScreenX(), event.getScreenY())) return;
                     Dragboard board = startDragAndDrop(TransferMode.MOVE);
                     ClipboardContent content = new ClipboardContent(); content.putString(file.getAbsolutePath());
                     board.setContent(content); event.consume();
@@ -164,12 +180,6 @@ public final class App extends Application {
         rootFolder.setOnAction(e -> { projectTree.getSelectionModel().clearSelection(); createInTree(true); });
         projectTree.setContextMenu(new ContextMenu(rootFile, rootFolder));
         projectTree.setOnKeyPressed(event -> { if (event.getCode() == KeyCode.F2) { renameInTree(); event.consume(); return; } if (event.getCode() == KeyCode.DELETE || event.getCode() == KeyCode.BACK_SPACE && event.isShortcutDown()) { deleteFromTree(); event.consume(); } });
-        projectTree.setOnMouseClicked(event -> {
-            if (event.getButton() == MouseButton.PRIMARY && event.getClickCount() == 2) {
-                TreeItem<File> item = projectTree.getSelectionModel().getSelectedItem();
-                if (item != null && item.getValue().isFile()) openFile(item.getValue());
-            }
-        });
 
         Label projectLabel = new Label("PROJECT");
         projectLabel.setStyle("-fx-font-weight: bold;");
@@ -460,9 +470,15 @@ public final class App extends Application {
         if (projectDirectory == null) return;
         Set<File> expanded = new HashSet<>();
         collectExpanded(projectTree.getRoot(), expanded);
+        TreeItem<File> selected = projectTree.getSelectionModel().getSelectedItem();
+        File selectedFile = selected == null ? null : selected.getValue();
         projectTree.setRoot(createTreeItem(projectDirectory));
         restoreExpanded(projectTree.getRoot(), expanded);
         projectTree.getRoot().setExpanded(true);
+        // A rebuild must not drop the selection, or the next click/Enter/F2 acts on nothing or on another row.
+        TreeItem<File> again = selectedFile == null ? null : findTreeItem(projectTree.getRoot(), selectedFile);
+        if (again != null) projectTree.getSelectionModel().select(again);
+        treeGestures.reset();
     }
 
     /** Rebuilding the tree must not fold every folder the person had open. */
