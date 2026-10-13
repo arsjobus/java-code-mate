@@ -8,6 +8,7 @@ import com.code_mate.icon.AppIcon;
 import com.code_mate.io.CrashLog;
 import com.code_mate.io.FileIO;
 import com.code_mate.io.ProjectFiles;
+import com.code_mate.io.ProjectWatcher;
 import com.code_mate.io.RecoveryStore;
 import com.code_mate.build.ManagedProcess;
 import com.code_mate.build.Problem;
@@ -107,6 +108,9 @@ public final class App extends Application {
     private final Map<File, List<Lsp.Diagnostic>> diagnostics = new HashMap<>();
     private final LanguageService language = new LanguageService(this::onDiagnostics, this::onLanguageLog, () -> Platform.runLater(this::updateLanguageStatus));
     private final SplitPane editorSplit = new SplitPane(tabs);
+    private static final long TREE_WATCH_MILLIS = 2000;
+    // Notices files added, removed, renamed or moved outside the editor (terminal, build, git, file manager).
+    private final ProjectWatcher treeWatcher = new ProjectWatcher(() -> this.treeExcludes, () -> Platform.runLater(this::refreshProjectTree));
     private File projectDirectory;
     private Scene scene;
     // v0.8 customization: plain-file settings (see CUSTOMIZATION.md). The java.util.prefs store still holds
@@ -220,6 +224,7 @@ public final class App extends Application {
         stage.setScene(scene);
         stage.setOnCloseRequest(event -> { if (!confirmCloseDirtyTabs()) event.consume(); else if (autosave != null) autosave.stop(); });
         stage.show();
+        treeWatcher.start(TREE_WATCH_MILLIS);
         reportSettingsProblems(false);
         startCrashRecovery();
     }
@@ -486,6 +491,7 @@ public final class App extends Application {
         TreeItem<File> again = selectedFile == null ? null : findTreeItem(projectTree.getRoot(), selectedFile);
         if (again != null) projectTree.getSelectionModel().select(again);
         treeGestures.reset();
+        treeWatcher.watch(projectDirectory.toPath()); // what the tree now shows is the baseline, so our own changes are not reported again
     }
 
     /** Rebuilding the tree must not fold every folder the person had open. */
@@ -1512,7 +1518,7 @@ public final class App extends Application {
 
     private void showError(String title, String message) { Alert a = new Alert(Alert.AlertType.ERROR); a.setTitle(title); a.setHeaderText(null); a.setContentText(message == null ? "Unknown error." : message); a.showAndWait(); }
 
-    @Override public void stop() { if (autosave != null) autosave.stop(); recoveryWriter.shutdown(); language.stopAll(); processes.stopAll(); subscriptions.values().forEach(Subscription::unsubscribe); }
+    @Override public void stop() { treeWatcher.close(); if (autosave != null) autosave.stop(); recoveryWriter.shutdown(); language.stopAll(); processes.stopAll(); subscriptions.values().forEach(Subscription::unsubscribe); }
 
     public static void main(String[] args) { launch(args); }
 }
