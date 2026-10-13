@@ -83,3 +83,45 @@
 .theme-hc.popup-pane .list-cell:filled:selected { -fx-background-color: #ffd866; -fx-text-fill: #000000; }
 .theme-hc.popup-pane .popup-text { -fx-text-fill: #ffffff; }
 .theme-hc.popup-pane.scroll-pane > .viewport { -fx-background-color: #000000; }
+
+/*
+ * Scroll bars and the line-number gutter.
+ * The JavaFX default draws the scroll bar handle in a shade that is almost the same as its track, which disappears
+ * in the dark themes. Every theme below pairs a track with a handle that keeps at least 3:1 contrast (WCAG non-text
+ * contrast); EditorCssTest enforces that. Order matters: base, then .theme-dark, then .theme-hc.
+ */
+.scroll-bar > .track,
+.scroll-bar > .track-background {
+    -fx-background-color: #e6e6e6;
+    -fx-background-insets: 0;
+    -fx-background-radius: 0;
+    -fx-border-color: transparent;
+}
+.scroll-bar > .thumb {
+    -fx-background-color: #767676;
+    -fx-background-insets: 2;
+    -fx-background-radius: 6;
+}
+.scroll-bar > .thumb:hover { -fx-background-color: #5c5c5c; }
+.scroll-bar > .thumb:pressed { -fx-background-color: #444444; }
+
+.theme-dark .scroll-bar > .track,
+.theme-dark .scroll-bar > .track-background { -fx-background-color: #2b2b2b; }
+.theme-dark .scroll-bar > .thumb { -fx-background-color: #8a8a8a; }
+.theme-dark .scroll-bar > .thumb:hover { -fx-background-color: #a6a6a6; }
+.theme-dark .scroll-bar > .thumb:pressed { -fx-background-color: #c0c0c0; }
+
+.theme-hc .scroll-bar > .track,
+.theme-hc .scroll-bar > .track-background { -fx-background-color: #000000; }
+.theme-hc .scroll-bar > .thumb { -fx-background-color: #d9d9d9; }
+.theme-hc .scroll-bar > .thumb:hover { -fx-background-color: #ffffff; }
+.theme-hc .scroll-bar > .thumb:pressed { -fx-background-color: #ffd866; }
+
+/*
+ * The gutter's own background stops 10px short of the text, so the first character no longer touches the line
+ * numbers. The padding keeps the numbers 8px away from the gutter's edge on both sides.
+ */
+.code-area .lineno {
+    -fx-padding: 0 18 0 8;
+    -fx-background-insets: 0 10 0 0;
+}
