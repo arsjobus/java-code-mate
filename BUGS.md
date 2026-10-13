@@ -13,7 +13,6 @@ Known issues for the initial foundation.
 - [ ] Language servers are started manually per language (Language > Start Language Server...). A `language.server.<id>` setting (user or project) pre-fills the command, but servers are never started automatically.
 - [ ] LSP: no `workspace/applyEdit`, code actions, range formatting or workspace symbols; servers that rename files as part of a rename are refused.
 - [ ] LSP: completion snippets are flattened to plain text (placeholders keep their default text), and results pointing outside `file:` URIs (e.g. jar contents) are not opened.
-- [ ] LSP: diagnostic underlines can sit a few characters off while typing, until the server publishes fresh diagnostics.
 - [ ] Customization: only menu actions are rebindable; keys handled by the text area itself (cursor movement, Ctrl+Z, copy/paste) are not.
 - [ ] Customization: with `editor.insertSpaces=false` the on-screen width of a tab character depends on JavaFX honoring `-fx-tab-size` in the code area; if it does not, tabs show at the default width.
 - [ ] Customization: the Settings dialog edits files on disk. If the same settings file is open in a tab with unsaved changes, saving the dialog does not update that tab.

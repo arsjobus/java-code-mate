@@ -13,6 +13,7 @@ import com.code_mate.build.Problem;
 import com.code_mate.build.ProblemParser;
 import com.code_mate.build.ProcessManager;
 import com.code_mate.build.ShellCommand;
+import com.code_mate.language.DiagnosticShifter;
 import com.code_mate.language.Languages;
 import com.code_mate.language.LanguageService;
 import com.code_mate.language.Lsp;
@@ -61,6 +62,7 @@ import org.fxmisc.richtext.CodeArea;
 import org.fxmisc.richtext.LineNumberFactory;
 import org.fxmisc.richtext.model.StyleSpans;
 import org.fxmisc.richtext.model.StyleSpansBuilder;
+import org.fxmisc.richtext.model.TwoDimensional;
 import org.reactfx.Subscription;
 
 import java.io.File;
@@ -789,10 +791,20 @@ public final class App extends Application {
             dirty.put(tab, true); updateTabTitle(tab);
             File current = (File) tab.getUserData();
             if (current != null) language.change(current, c.getPosition(), c.getRemoved().length(), c.getInserted());
+            if (current != null) shiftDiagnostics(editor, current, c.getPosition(), c.getRemoved(), c.getInserted());
             highlight(editor);
         }));
         tab.setOnCloseRequest(e -> { if (!confirmClose(tab)) e.consume(); });
         return tab;
+    }
+
+    /** Moves the stored language diagnostics along with an edit, so underlines stay on their text until the server republishes. */
+    private void shiftDiagnostics(CodeArea editor, File file, int offset, String removed, String inserted) {
+        List<Lsp.Diagnostic> reported = diagnostics.get(file);
+        if (reported == null) return;
+        TwoDimensional.Position at = editor.offsetToPosition(offset, TwoDimensional.Bias.Forward); // text before the edit is unchanged
+        List<Lsp.Diagnostic> shifted = DiagnosticShifter.shift(reported, new Lsp.Position(at.getMajor(), at.getMinor()), removed, inserted);
+        if (shifted.isEmpty()) diagnostics.remove(file); else diagnostics.put(file, shifted);
     }
 
     private void updateTabTitle(Tab tab) {
