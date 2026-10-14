@@ -29,7 +29,8 @@ import java.util.Set;
  *   <li><b>C-family</b> ({@code //} and {@code /* *}{@code /} comments, double and single quoted literals): Java,
  *       Kotlin, JavaScript, TypeScript, C, C++, Go, Rust, PHP and JSON.
  *   <li><b>Python</b>: {@code #} comments, single and triple quoted strings that may carry an {@code r}, {@code b},
- *       {@code f} or {@code u} prefix, and dotted decorators such as {@code @app.route}.
+ *       {@code f} or {@code u} prefix, dotted decorators such as {@code @app.route}, and the soft keywords {@code match}
+ *       and {@code case} (only where they start a {@code match} statement or clause, see {@code isPythonSoftKeyword}).
  *   <li><b>Markup</b> (HTML and XML): comments, {@code <!DOCTYPE>} and {@code <?xml ...?>} declarations, CDATA
  *       sections, tag names (as keywords), attribute names (as types) and quoted attribute values. Only text inside a
  *       tag is ever coloured, so an apostrophe in the prose between tags stays plain. In HTML the content of a
@@ -113,6 +114,12 @@ public final class SyntaxHighlighter {
 
     /** The prefixes (lower case) that may precede the quote of a Python string literal. */
     private static final Set<String> PYTHON_STRING_PREFIXES = Set.of("r", "u", "b", "f", "br", "rb", "fr", "rf");
+
+    /** Python's soft keywords: words that are keywords only in a {@code match} statement and ordinary names everywhere else. */
+    private static final Set<String> PYTHON_SOFT_KEYWORDS = Set.of("match", "case");
+
+    /** Words that cannot start a {@code match} subject or a {@code case} pattern, so {@code match in x:} is not a statement. */
+    private static final Set<String> NOT_A_SUBJECT = Set.of("in", "is", "and", "or", "if", "else", "for", "as");
 
     /** Extensions (lower case, no dot) of files whose syntax the scanner understands, and the language each one uses. */
     private static final Map<String, Language> EXTENSIONS = Map.ofEntries(
@@ -204,7 +211,7 @@ public final class SyntaxHighlighter {
             } else if (Character.isJavaIdentifierStart(c)) {
                 int end = identifierEnd(text, i);
                 String word = text.substring(i, end);
-                if (lexicon.keywords().contains(word)) add(spans, i, end, "keyword");
+                if (lexicon.keywords().contains(word) || python && isPythonSoftKeyword(text, i, end)) add(spans, i, end, "keyword");
                 else if (lexicon.types().contains(word)) add(spans, i, end, "type");
                 i = end;
             } else if (c >= '0' && c <= '9') {
@@ -330,6 +337,49 @@ public final class SyntaxHighlighter {
             else if (text.startsWith(triple, i)) return i + 3;
         }
         return n;
+    }
+
+    /**
+     * True when the word at {@code [start, end)} is Python's {@code match} or {@code case} used as a soft keyword. These
+     * are ordinary names (a variable, a function, {@code re.match}) everywhere else, so the word counts only when it is
+     * the first token on its line, is followed by something that can begin a subject or pattern, and the line then has a
+     * {@code :} outside any brackets, strings and comment ({@code case 1: return x} counts, {@code match = f(a: b)} does
+     * not). A subject or pattern that continues over several lines is not recognised. Costs one pass over the rest of
+     * the line, and only for these two words at the start of a line.
+     */
+    private static boolean isPythonSoftKeyword(String text, int start, int end) {
+        if (!PYTHON_SOFT_KEYWORDS.contains(text.substring(start, end))) return false;
+        for (int i = start - 1; i >= 0 && text.charAt(i) != '\n'; i--) {
+            if (text.charAt(i) != ' ' && text.charAt(i) != '\t') return false;
+        }
+        int n = text.length();
+        int next = end;
+        while (next < n && (text.charAt(next) == ' ' || text.charAt(next) == '\t')) next++;
+        if (next == end || next >= n) return false; // `match(x)`, `match` alone and `match\n` are not statements
+        char first = text.charAt(next);
+        if (!(Character.isJavaIdentifierStart(first) || Character.isDigit(first) || "([{\"'-+*~".indexOf(first) >= 0)) return false;
+        if (Character.isJavaIdentifierStart(first) && NOT_A_SUBJECT.contains(text.substring(next, identifierEnd(text, next)))) return false;
+        char quote = 0;
+        int depth = 0;
+        for (int i = next; i < n; i++) {
+            char c = text.charAt(i);
+            if (c == '\n') break;
+            if (quote != 0) {
+                if (c == '\\') i++;
+                else if (c == quote) quote = 0;
+            } else if (c == '#') {
+                break;
+            } else if (c == '"' || c == '\'') {
+                quote = c;
+            } else if (c == '(' || c == '[' || c == '{') {
+                depth++;
+            } else if (c == ')' || c == ']' || c == '}') {
+                depth--;
+            } else if (c == ':' && depth == 0 && !(i + 1 < n && text.charAt(i + 1) == '=')) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

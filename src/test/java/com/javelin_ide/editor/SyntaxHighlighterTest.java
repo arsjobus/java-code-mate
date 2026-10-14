@@ -327,11 +327,90 @@ class SyntaxHighlighterTest {
         }
     }
 
+    // Python soft keywords (BUGS.md: "no contextual keywords such as ... Python's soft keywords `match`/`case`")
+
+    @Test void matchAndCaseStartingAStatementAreKeywords() {
+        String code = "match command:\n    case 'go':\n        pass\n    case _:\n        pass\n";
+        assertEquals(List.of("keyword:match", "keyword:case", "string:'go'", "keyword:pass", "keyword:case", "keyword:pass"), styled(code, "a.py"));
+    }
+
+    @Test void aCaseBodyOnTheSameLineStillMakesItAKeyword() {
+        assertEquals(List.of("keyword:case", "number:1", "keyword:return", "number:2"), styled("    case 1: return 2", "a.py"));
+        assertEquals(List.of("keyword:case", "keyword:None", "keyword:case", "keyword:True"), styled("case None: x\ncase True: y", "a.py"));
+    }
+
+    @Test void softKeywordsMayBeIndentedWithTabsAndFollowedByCommentsOrBrackets() {
+        assertEquals(List.of("keyword:match", "comment:# why"), styled("\t\tmatch x:  # why", "a.py"));
+        assertEquals(List.of("keyword:match", "string:\"k\""), styled("match d[\"k\"]:", "a.py"));
+        assertEquals(List.of("keyword:case", "number:1", "keyword:if"), styled("case [1, *rest] if rest:", "a.py").subList(0, 3));
+        assertEquals(List.of("keyword:case", "string:\"a\"", "number:1"), styled("case {\"a\": 1}:", "a.py"));
+        assertEquals(List.of("keyword:match", "number:1"), styled("match (1):", "a.py"));
+        assertEquals(List.of("keyword:match", "number:1"), styled("match -1:", "a.py"));
+    }
+
+    @Test void softKeywordsAreRecognisedWithWindowsLineEndings() {
+        assertEquals(List.of("keyword:match", "keyword:case", "number:1"), styled("match x:\r\n  case 1:\r\n", "a.py"));
+    }
+
+    @Test void matchAndCaseUsedAsNamesStayPlain() {
+        assertEquals(List.of(), styled("match = re.match(pattern, text)", "a.py"));
+        assertEquals(List.of("number:1"), styled("match.group(1)", "a.py"));
+        assertEquals(List.of("number:3"), styled("case = 3", "a.py"));
+        assertEquals(List.of("type:str"), styled("case: str", "a.py"));
+        assertEquals(List.of("type:int", "number:1"), styled("match: int = 1", "a.py"));
+        assertEquals(List.of(), styled("print(match, case)", "a.py"));
+        assertEquals(List.of(), styled("match(x)", "a.py"));
+        assertEquals(List.of("number:0"), styled("match[0]", "a.py"));
+        assertEquals(List.of(), styled("match += x", "a.py"));
+        assertEquals(List.of(), styled("match", "a.py"));
+        assertEquals(List.of(), styled("match\n", "a.py"));
+        assertEquals(List.of(), styled("case ", "a.py"));
+    }
+
+    @Test void matchAndCaseInsideOtherCodeStayPlain() {
+        assertEquals(List.of("keyword:for", "keyword:in"), styled("x = [match for match in items]", "a.py"));
+        assertEquals(List.of("keyword:if", "keyword:else", "number:0"), styled("y = match if case else 0", "a.py"));
+        assertEquals(List.of("keyword:if"), styled("if x: match = y", "a.py"));
+    }
+
+    @Test void aStatementWithoutAColonIsNotAMatch() {
+        assertEquals(List.of("comment:# note: stuff"), styled("match x  # note: stuff", "a.py"));
+        assertEquals(List.of("string:\"a:b\""), styled("match \"a:b\"", "a.py"));
+        assertEquals(List.of("number:1", "number:2"), styled("match d[1:2]", "a.py"));
+        assertEquals(List.of("number:1"), styled("match (x := 1)", "a.py"));
+        assertEquals(List.of(), styled("match x := y", "a.py"));
+    }
+
+    @Test void wordsThatCannotBeASubjectAreNotAMatch() {
+        assertEquals(List.of("keyword:in"), styled("match in x:", "a.py"));
+        assertEquals(List.of("keyword:is"), styled("case is x:", "a.py"));
+    }
+
+    @Test void softKeywordsInStringsAndCommentsStayHidden() {
+        assertEquals(List.of("comment:# match x:"), styled("# match x:", "a.py"));
+        assertEquals(List.of("string:\"\"\"\nmatch x:\n    case 1:\n\"\"\""), styled("\"\"\"\nmatch x:\n    case 1:\n\"\"\"", "a.py"));
+        assertEquals(List.of("string:'match x:'"), styled("'match x:'", "a.py"));
+    }
+
+    @Test void onlyPythonTreatsMatchAndCaseAsSoftKeywords() {
+        assertEquals(List.of("number:1"), styled("match x:\n case 1:", "a.kt"));
+        assertEquals(List.of("number:1"), styled("match x:\n case 1:", "a.json"));
+        assertEquals(List.of("keyword:case"), styled("case x:", "a.java")); // Java: `case` is always a keyword, `match` never
+        assertEquals(List.of("keyword:match"), styled("match x:", "a.rs"));
+    }
+
+    @Test void softKeywordsKeepTheTextScanLinear() {
+        String text = "match x:\n    case 1:\n        pass\n".repeat(25_000);
+        assertTimeoutPreemptively(java.time.Duration.ofSeconds(5), () -> assertEquals(25_000 * 4, SyntaxHighlighter.spansIn(text, Language.PYTHON).size()));
+        String longLine = "match " + "a, ".repeat(200_000);
+        assertTimeoutPreemptively(java.time.Duration.ofSeconds(5), () -> assertTrue(SyntaxHighlighter.spansIn(longLine, Language.PYTHON).isEmpty()));
+    }
+
     @Test void pythonKnowsItsOwnKeywordsNotJavasOrOthers() {
         assertEquals(List.of(), styled("public static void new implements synchronized String let fn func val", "a.py"));
         assertEquals(List.of("keyword:class", "keyword:import", "keyword:try"), styled("class import try", "a.py"));
         assertEquals(List.of(), styled("lambda_ nonlocals defs island", "a.py"));
-        assertEquals(List.of("number:1"), styled("match x:\n case 1:", "a.py")); // soft keywords are not highlighted
+        assertEquals(List.of("keyword:match", "keyword:case", "number:1"), styled("match x:\n case 1:", "a.py")); // soft keywords, see below
     }
 
     @Test void hashStartsAPythonCommentButSlashesDoNot() {
