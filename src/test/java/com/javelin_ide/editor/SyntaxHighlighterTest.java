@@ -175,6 +175,37 @@ class SyntaxHighlighterTest {
             styled("fn main() { let mut x: u32 = 1; match Self }", "main.rs"));
     }
 
+    @Test void rustLifetimesAreNotMistakenForCharacterLiterals() {
+        // Used to colour 'a>(x: &' as one string and hide everything inside it.
+        assertEquals(List.of("keyword:fn", "type:str", "type:str"), styled("fn first<'a>(x: &'a str) -> &'a str { x }", "lib.rs"));
+        assertEquals(List.of("keyword:impl", "keyword:fn", "keyword:self", "type:i32", "number:1"),
+            styled("impl<'a> Foo<'a> { fn f(&self) -> i32 { 1 } }", "lib.rs"));
+        assertEquals(List.of("keyword:static", "type:str"), styled("static S: &'static str", "lib.rs"));
+    }
+
+    @Test void rustLoopLabelsDoNotHideTheLoop() {
+        assertEquals(List.of("keyword:loop", "keyword:break"), styled("'outer: loop { break 'outer; }", "main.rs"));
+        assertEquals(List.of("keyword:for", "keyword:in", "keyword:continue"), styled("'rows: for x in xs { continue 'rows }", "main.rs"));
+    }
+
+    @Test void rustCharacterLiteralsAreStillStrings() {
+        assertEquals(List.of("keyword:let", "string:'x'", "keyword:let", "string:'\\n'", "keyword:let", "string:'\u00e9'"),
+            styled("let c = 'x'; let d = '\\n'; let e = '\u00e9';", "main.rs"));
+        // A lifetime and a one-letter character literal side by side: only the literal is a string.
+        assertEquals(List.of("keyword:fn", "type:str", "keyword:let", "string:'a'"), styled("fn f<'a>(s: &'a str) { let x = 'a'; }", "main.rs"));
+    }
+
+    @Test void aRustLifetimeAtTheEndOfTheTextIsPlain() {
+        assertEquals(List.of(), styled("&'a", "main.rs"));
+        assertEquals(List.of(), styled("&'", "main.rs"));
+        assertEquals(List.of("keyword:fn"), styled("fn 'static", "main.rs"));
+    }
+
+    @Test void onlyRustTreatsAQuoteAndANameAsALifetime() {
+        assertEquals(List.of("string:'a>(x: &'"), styled("'a>(x: &'", "A.java"));
+        assertEquals(List.of("string:'a>(x: &'"), styled("'a>(x: &'", "a.c"));
+    }
+
     @Test void goKeywordsAndTypesAreHighlightedInGoFiles() {
         assertEquals(List.of("keyword:func", "keyword:var", "type:string", "keyword:go", "keyword:defer", "keyword:nil"),
             styled("func main() { var s string; go run(); defer done(); nil }", "main.go"));

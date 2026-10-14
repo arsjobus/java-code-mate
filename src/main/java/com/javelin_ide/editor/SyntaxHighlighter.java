@@ -163,12 +163,15 @@ public final class SyntaxHighlighter {
         List<Span> spans = new ArrayList<>();
         if (tooLarge(text.length())) return spans;
         if (lexicon.syntax() == Syntax.MARKUP) markup(text, language == Language.HTML, spans);
-        else code(text, lexicon, spans);
+        else code(text, lexicon, language == Language.RUST, spans);
         return spans;
     }
 
-    /** Scans C-family or Python source. */
-    private static void code(String text, Lexicon lexicon, List<Span> spans) {
+    /**
+     * Scans C-family or Python source. In Rust ({@code rust}) a quote followed by a name that does not end in another quote
+     * is a lifetime or loop label ({@code 'a}, {@code 'static}, {@code 'outer:}), not a character literal, and is left plain.
+     */
+    private static void code(String text, Lexicon lexicon, boolean rust, List<Span> spans) {
         boolean python = lexicon.syntax() == Syntax.PYTHON;
         int n = text.length();
         int i = 0;
@@ -188,6 +191,8 @@ public final class SyntaxHighlighter {
             } else if ((c == '"' || python && c == '\'') && text.startsWith(c == '"' ? "\"\"\"" : "'''", i)) {
                 int start = python ? i - stringPrefixLength(text, i) : i;
                 i = add(spans, start, tripleEnd(text, i, c, python), "string");
+            } else if (rust && c == '\'' && isLifetime(text, i)) {
+                i = identifierEnd(text, i + 1);
             } else if (c == '"' || c == '\'') {
                 if (i < (c == '"' ? doubleDeadUntil : singleDeadUntil)) { i++; continue; }
                 int end = literalEnd(text, i, c);
@@ -339,6 +344,17 @@ public final class SyntaxHighlighter {
             if (PYTHON_STRING_PREFIXES.contains(text.substring(from, quote).toLowerCase(Locale.ROOT))) return length;
         }
         return 0;
+    }
+
+    /**
+     * True when the quote at {@code quote} opens a Rust lifetime or label: it is followed by an identifier that is not
+     * closed by a second quote. {@code 'a'} and {@code 'é'} are character literals; {@code 'a} and {@code 'static} are not.
+     */
+    private static boolean isLifetime(String text, int quote) {
+        int from = quote + 1;
+        if (from >= text.length() || !Character.isJavaIdentifierStart(text.charAt(from))) return false;
+        int end = identifierEnd(text, from);
+        return end >= text.length() || text.charAt(end) != '\'';
     }
 
     /** End of a dotted name such as {@code app.route}, starting with an identifier at {@code from}. */
