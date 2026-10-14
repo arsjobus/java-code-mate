@@ -195,6 +195,56 @@ class SyntaxHighlighterTest {
         assertEquals(List.of("keyword:fn", "type:str", "keyword:let", "string:'a'"), styled("fn f<'a>(s: &'a str) { let x = 'a'; }", "main.rs"));
     }
 
+    // Rust attributes (BUGS.md: "no Rust `#[...]` attributes")
+    @Test void rustOuterAttributesAreAnnotations() {
+        assertEquals(List.of("annotation:#[derive", "keyword:struct"), styled("#[derive(Debug)] struct", "a.rs"));
+        assertEquals(List.of("annotation:#[test", "keyword:fn"), styled("#[test]\nfn t() {}", "a.rs"));
+    }
+
+    @Test void rustInnerAttributesAreAnnotations() {
+        assertEquals(List.of("annotation:#![allow"), styled("#![allow(dead_code)]", "a.rs"));
+        assertEquals(List.of("annotation:#![no_std"), styled("#![no_std]", "a.rs"));
+    }
+
+    @Test void rustAttributePathsAreOneAnnotation() {
+        assertEquals(List.of("annotation:#[tokio::main", "keyword:async", "keyword:fn"), styled("#[tokio::main]\nasync fn main() {}", "a.rs"));
+        assertEquals(List.of("annotation:#[cfg_attr", "annotation:#[serde::rename"), styled("#[cfg_attr(a, b)] #[serde::rename = x]", "a.rs"));
+    }
+
+    @Test void rustAttributeArgumentsAreStillScannedAsCode() {
+        assertEquals(List.of("annotation:#[doc", "string:\"fn\""), styled("#[doc = \"fn\"]", "a.rs"));
+        assertEquals(List.of("annotation:#[cfg", "annotation:#[test"), styled("#[cfg(test)] #[test]", "a.rs"));
+    }
+
+    @Test void aHashThatIsNotAnAttributeStaysPlainInRust() {
+        assertEquals(List.of(), styled("# [", "a.rs"));
+        assertEquals(List.of(), styled("#[", "a.rs"));
+        assertEquals(List.of(), styled("#![", "a.rs"));
+        assertEquals(List.of("number:1"), styled("#[1]", "a.rs")); // no name after the bracket: not an attribute
+        assertEquals(List.of(), styled("#", "a.rs"));
+        assertTrue(styled("r#\"x\"#", "a.rs").stream().noneMatch(x -> x.startsWith("annotation")));
+    }
+
+    @Test void rustAttributesInStringsAndCommentsStayHidden() {
+        assertEquals(List.of("string:\"#[derive]\"", "comment:// #[test]"), styled("\"#[derive]\" // #[test]", "a.rs"));
+        assertEquals(List.of("comment:/* #![x] */"), styled("/* #![x] */", "a.rs"));
+    }
+
+    @Test void onlyRustTreatsHashBracketAsAnAttribute() {
+        for (String name : List.of("a.c", "a.cpp", "a.go", "a.java", "a.kt", "a.ts", "a.js")) {
+            assertTrue(styled("#[derive(Debug)]", name).stream().noneMatch(x -> x.startsWith("annotation:#")), name);
+        }
+        assertEquals(List.of("comment:#[derive(Debug)]"), styled("#[derive(Debug)]", "a.py")); // a Python comment
+    }
+
+    @Test void rustAttributesKeepTheTextScanLinear() {
+        String text = "#[a::".repeat(20_000) + "#![".repeat(20_000);
+        long start = System.nanoTime();
+        List<Span> spans = SyntaxHighlighter.spans(text, new File("a.rs"));
+        assertTrue((System.nanoTime() - start) / 1_000_000 < 2_000);
+        for (int i = 1; i < spans.size(); i++) assertTrue(spans.get(i - 1).end() <= spans.get(i).start());
+    }
+
     @Test void aRustLifetimeAtTheEndOfTheTextIsPlain() {
         assertEquals(List.of(), styled("&'a", "main.rs"));
         assertEquals(List.of(), styled("&'", "main.rs"));

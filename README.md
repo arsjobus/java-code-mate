@@ -1,4 +1,4 @@
-# javelin IDE
+# Javelin IDE
 
 A local-first Java code editor built around the principles of intentional computing.
 

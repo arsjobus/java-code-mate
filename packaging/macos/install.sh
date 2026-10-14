@@ -1,5 +1,5 @@
 #!/bin/sh
-# Installs "javelin IDE.app" (built by build-app.sh) and the 'javelin' terminal command.
+# Installs "Javelin IDE.app" (built by build-app.sh) and the 'javelin' terminal command.
 #
 #   packaging/macos/install.sh              install
 #   packaging/macos/install.sh --uninstall  remove both again

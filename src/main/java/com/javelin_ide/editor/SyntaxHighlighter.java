@@ -198,6 +198,8 @@ public final class SyntaxHighlighter {
             } else if ((c == '"' || python && c == '\'') && text.startsWith(c == '"' ? "\"\"\"" : "'''", i)) {
                 int start = python ? i - stringPrefixLength(text, i) : i;
                 i = add(spans, start, tripleEnd(text, i, c, python), "string");
+            } else if (rust && c == '#' && isRustAttribute(text, i)) {
+                i = add(spans, i, rustAttributeEnd(text, i), "annotation");
             } else if (rust && c == '\'' && isLifetime(text, i)) {
                 i = identifierEnd(text, i + 1);
             } else if (c == '"' || c == '\'') {
@@ -411,6 +413,27 @@ public final class SyntaxHighlighter {
     private static int dottedEnd(String text, int from) {
         int i = identifierEnd(text, from), n = text.length();
         while (i + 1 < n && text.charAt(i) == '.' && Character.isJavaIdentifierStart(text.charAt(i + 1))) i = identifierEnd(text, i + 1);
+        return i;
+    }
+
+    /** True when the {@code #} at {@code hash} opens a Rust attribute: {@code #[name...]} or the inner form {@code #![name...]}. */
+    private static boolean isRustAttribute(String text, int hash) {
+        int n = text.length();
+        int open = hash + 1;
+        if (open < n && text.charAt(open) == '!') open++;
+        return open + 1 < n && text.charAt(open) == '[' && Character.isJavaIdentifierStart(text.charAt(open + 1));
+    }
+
+    /**
+     * End (exclusive) of the marker and path of the Rust attribute at {@code hash}: {@code #[derive}, {@code #![allow},
+     * {@code #[tokio::main}. Like a Java annotation only the name is coloured; the arguments are scanned as ordinary code.
+     */
+    private static int rustAttributeEnd(String text, int hash) {
+        int n = text.length();
+        int i = hash + 1;
+        if (text.charAt(i) == '!') i++;
+        i = identifierEnd(text, i + 1); // skips the `[`, then the first path segment
+        while (i + 2 < n && text.charAt(i) == ':' && text.charAt(i + 1) == ':' && Character.isJavaIdentifierStart(text.charAt(i + 2))) i = identifierEnd(text, i + 2);
         return i;
     }
 
