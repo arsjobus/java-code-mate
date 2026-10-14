@@ -4,13 +4,12 @@
 #   javelin            open the current directory
 #   javelin path/to/x  open that directory
 #
-# If javelin IDE is not running it is started with the directory as its argument. If it is already running, macOS
-# cannot pass it new arguments, so the directory is left as a small request file that the running window picks up
-# within a second (see OpenRequests.java for the format), and the window is brought to the front.
+# Every call starts its own javelin IDE instance (open -n) with the directory as its argument, so running 'javelin'
+# in several folders gives one editor window per project, each with its own Dock icon and Cmd+Tab entry to switch
+# between. macOS passes --args to a new instance only, which is why a running instance is never reused.
 set -eu
 
 APP_NAME="${JAVALIN_IDE_APP_NAME:-javelin IDE}"
-CONFIG_DIR="${JAVALIN_IDE_CONFIG_DIR:-$HOME/Library/Application Support/javelin-ide}"
 
 usage() {
   echo "usage: javelin [directory]"
@@ -39,13 +38,5 @@ not_installed() {
   exit 1
 }
 
-if pgrep -x "$APP_NAME" >/dev/null 2>&1; then
-  requests="$CONFIG_DIR/open-requests"
-  mkdir -p "$requests"
-  name="$(date +%s)-$$"
-  printf '%s\n' "$dir" > "$requests/.$name.tmp"
-  mv "$requests/.$name.tmp" "$requests/$name.request"
-  open -a "$APP_NAME" || not_installed
-else
-  open -a "$APP_NAME" --args "$dir" || not_installed
-fi
+# -n: always a new instance, even when javelin IDE is already running (one instance per project).
+open -n -a "$APP_NAME" --args "$dir" || not_installed

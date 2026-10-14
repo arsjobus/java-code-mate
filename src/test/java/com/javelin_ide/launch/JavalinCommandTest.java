@@ -64,7 +64,7 @@ class JavalinCommandTest {
     @Test void startsTheAppWithTheCurrentDirectoryWhenItIsNotRunning() throws Exception {
         Outcome o = run(project, Map.of());
         assertEquals(0, o.exit(), o.err());
-        assertEquals(List.of("-a", "javelin IDE", "--args", project.toRealPath().toString()), openCalls());
+        assertEquals(List.of("-n", "-a", "javelin IDE", "--args", project.toRealPath().toString()), openCalls());
         assertFalse(Files.exists(config.resolve("open-requests")), "nothing to hand over: the argument carries it");
     }
 
@@ -72,25 +72,27 @@ class JavalinCommandTest {
         Files.createDirectories(work.resolve("a/b"));
         Outcome o = run(work.resolve("a"), Map.of(), "b/../b");
         assertEquals(0, o.exit(), o.err());
-        assertEquals(List.of("-a", "javelin IDE", "--args", work.resolve("a/b").toRealPath().toString()), openCalls());
+        assertEquals(List.of("-n", "-a", "javelin IDE", "--args", work.resolve("a/b").toRealPath().toString()), openCalls());
     }
 
-    @Test void aRunningAppGetsARequestFileAndIsBroughtToTheFront() throws Exception {
-        Outcome o = run(project, Map.of("STUB_RUNNING", "1"));
+    @Test void aRunningAppIsNotReusedTheFolderGetsItsOwnInstance() throws Exception {
+        Outcome o = run(project, Map.of("STUB_RUNNING", "1"));   // pgrep says javelin IDE is already running
         assertEquals(0, o.exit(), o.err());
-        assertEquals(List.of("-a", "javelin IDE"), openCalls(), "no --args: macOS would drop them for a running app");
-        // the app side reads exactly what the script wrote
-        assertEquals(project.toRealPath(), new OpenRequests(config.resolve(OpenRequests.DIRECTORY_NAME)).take().orElseThrow());
+        assertEquals(List.of("-n", "-a", "javelin IDE", "--args", project.toRealPath().toString()), openCalls(),
+            "-n starts a new instance; without it macOS would drop --args for a running app and show the old window");
+        assertFalse(Files.exists(config.resolve("open-requests")), "no request file: the running window is not involved");
     }
 
-    @Test void requestsLeaveNoTemporaryFilesBehind() throws Exception {
-        run(project, Map.of("STUB_RUNNING", "1"));
-        try (var files = Files.list(config.resolve("open-requests"))) {
-            assertEquals(1, files.count());
-        }
-        try (var files = Files.list(config.resolve("open-requests"))) {
-            assertTrue(files.allMatch(p -> p.getFileName().toString().endsWith(OpenRequests.SUFFIX)));
-        }
+    @Test void runningJavelinInSeveralFoldersStartsOneInstancePerFolder() throws Exception {
+        Path second = Files.createDirectory(work.resolve("other"));
+        Path third = Files.createDirectory(work.resolve("third"));
+        assertEquals(0, run(project, Map.of()).exit());
+        assertEquals(0, run(second, Map.of("STUB_RUNNING", "1")).exit());   // the first instance is up by now
+        assertEquals(0, run(work, Map.of("STUB_RUNNING", "1"), "third").exit());
+        assertEquals(List.of(
+            "-n", "-a", "javelin IDE", "--args", project.toRealPath().toString(),
+            "-n", "-a", "javelin IDE", "--args", second.toRealPath().toString(),
+            "-n", "-a", "javelin IDE", "--args", third.toRealPath().toString()), openCalls());
     }
 
     @Test void aFileOrMissingPathIsRefused() throws Exception {

@@ -2,10 +2,15 @@ package com.javelin_ide.io;
 
 import java.io.IOException;
 import java.net.URI;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
+import java.nio.channels.OverlappingFileLockException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Duration;
 import java.time.Instant;
@@ -25,6 +30,12 @@ import java.util.stream.Stream;
  * <p>A snapshot exists only while its buffer has unsaved changes. Saving or deliberately discarding a buffer deletes
  * its snapshot, so any snapshot found at the next start belongs to a session that did not end cleanly. The directory
  * is created owner-only where the file system supports it, because snapshots hold text the user has not chosen to save.
+ *
+ * <p>Several editor instances can run at once (one per project, see {@code packaging/macos/javelin}) and share this
+ * directory. An instance calls {@link #startSession()} to lock a small file for as long as it lives; the snapshots it
+ * writes carry its session in their id. Other instances leave those snapshots alone while the lock is held, so a
+ * second window never offers (or deletes) a first window's live unsaved work. The operating system drops the lock
+ * when the process ends, however it ends, which turns the snapshots into ordinary leftovers to offer at the next start.
  */
 public final class RecoveryStore {
     /**
@@ -56,8 +67,15 @@ public final class RecoveryStore {
     private static final String MAGIC = "javelin-ide-recovery 1";
     private static final Pattern ID = Pattern.compile("[A-Za-z0-9-]{1,64}");
 
+    /** Ids written inside a session start with {@code s}, twelve hex digits and a dash; older ids are plain UUIDs. */
+    private static final Pattern SESSION_ID = Pattern.compile("s([0-9a-f]{12})-.+");
+    private static final String LOCK_PREFIX = ".session-", LOCK_SUFFIX = ".lock";
+
     private final Path directory;
     private final Map<String, Written> lastSaved = new HashMap<>();
+    private String sessionToken;      // null until startSession()
+    private FileChannel sessionChannel;
+    private FileLock sessionLock;
 
     /** Lists a directory; injectable so a folder that cannot be read can be simulated in tests. */
     interface Lister { Stream<Path> list(Path directory) throws IOException; }
@@ -78,6 +96,40 @@ public final class RecoveryStore {
     public Path directory() { return directory; }
 
     public static String newId() { return UUID.randomUUID().toString(); }
+
+    /**
+     * Claims this store for the running process: locks a file in the directory until {@link #endSession()} or until
+     * the process ends. Ids from {@link #newSessionId()} are then protected from every other instance sharing the
+     * directory. Calling it again while a session is active does nothing.
+     */
+    public synchronized void startSession() throws IOException {
+        if (sessionLock != null) return;
+        ensureDirectory();
+        String token = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+        FileChannel channel = FileChannel.open(lockFor(token), StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+        FileLock lock = null;
+        try {
+            lock = channel.tryLock();
+            if (lock == null) throw new IOException("Could not lock " + lockFor(token));
+        } finally {
+            if (lock == null) { channel.close(); deleteQuietly(lockFor(token)); }
+        }
+        sessionToken = token; sessionChannel = channel; sessionLock = lock;
+    }
+
+    /** Ends the session: its snapshots (if any are left) become leftovers that any instance may offer. Safe to call twice. */
+    public synchronized void endSession() {
+        if (sessionLock == null) return;
+        try { sessionLock.release(); } catch (IOException ignored) { /* closing the channel releases it anyway */ }
+        try { sessionChannel.close(); } catch (IOException ignored) { /* nothing more to do */ }
+        deleteQuietly(lockFor(sessionToken));
+        sessionToken = null; sessionChannel = null; sessionLock = null;
+    }
+
+    /** A fresh id for a buffer of this instance; without {@link #startSession()} it is a plain {@link #newId()}. */
+    public synchronized String newSessionId() {
+        return sessionToken == null ? newId() : "s" + sessionToken + "-" + UUID.randomUUID();
+    }
 
     /** Writes the buffer's current text unless it is identical to what was last written for this id. Returns whether it wrote. */
     public boolean saveIfChanged(String id, Path original, String text) throws IOException {
@@ -140,17 +192,64 @@ public final class RecoveryStore {
                 if (Files.getLastModifiedTime(file).toInstant().isBefore(cutoff) && deleteQuietly(file)) removed++;
             } catch (IOException ignored) { /* vanished meanwhile */ }
         }
+        sweepEndedSessionLocks(cutoff);
         return removed;
+    }
+
+    /** Removes lock files of sessions that ended (nobody holds them) and are older than {@code cutoff}; a new session's file is never touched. */
+    private void sweepEndedSessionLocks(Instant cutoff) {
+        if (!Files.isDirectory(directory)) return;
+        try (Stream<Path> files = lister.list(directory)) {
+            for (Path file : files.filter(p -> p.getFileName().toString().startsWith(LOCK_PREFIX) && p.getFileName().toString().endsWith(LOCK_SUFFIX)).toList()) {
+                String name = file.getFileName().toString();
+                String token = name.substring(LOCK_PREFIX.length(), name.length() - LOCK_SUFFIX.length());
+                try {
+                    if (!isLive(token) && Files.getLastModifiedTime(file).toInstant().isBefore(cutoff)) deleteQuietly(file);
+                } catch (IOException ignored) { /* vanished meanwhile */ }
+            }
+        } catch (IOException ignored) { /* cannot list: try again next start */ }
     }
 
     private List<Path> snapshotFiles() {
         if (!Files.isDirectory(directory)) return List.of();
         try (Stream<Path> files = lister.list(directory)) {
-            return files.filter(p -> p.getFileName().toString().endsWith(EXTENSION) && Files.isRegularFile(p)).sorted().toList();
+            return files.filter(p -> p.getFileName().toString().endsWith(EXTENSION) && Files.isRegularFile(p))
+                .filter(p -> !belongsToLiveSession(p)).sorted().toList();
         } catch (IOException ex) {
             return List.of();
         }
     }
+
+    /** True for a snapshot written by an instance that is still running: it is that instance's, not a leftover. */
+    private boolean belongsToLiveSession(Path snapshot) {
+        String name = snapshot.getFileName().toString();
+        var match = SESSION_ID.matcher(name.substring(0, name.length() - EXTENSION.length()));
+        return match.matches() && isLive(match.group(1));
+    }
+
+    /**
+     * Whether some process (this one included) holds the session's lock. When in doubt the answer is yes: someone
+     * else's unsaved work is never offered to a second window and never deleted by it.
+     */
+    private boolean isLive(String token) {
+        if (token.equals(sessionToken)) return true; // never open a second channel on our own lock: closing it could release the lock
+        Path lockFile = lockFor(token);
+        if (!Files.exists(lockFile)) return false;
+        try (FileChannel channel = FileChannel.open(lockFile, StandardOpenOption.WRITE)) {
+            FileLock lock = channel.tryLock();
+            if (lock == null) return true;
+            lock.release();
+            return false;
+        } catch (OverlappingFileLockException held) {
+            return true;  // held by another store inside this JVM
+        } catch (NoSuchFileException gone) {
+            return false; // the session ended while we looked
+        } catch (IOException unsure) {
+            return true;
+        }
+    }
+
+    private Path lockFor(String token) { return directory.resolve(LOCK_PREFIX + token + LOCK_SUFFIX); }
 
     private static Snapshot read(Path file) {
         try {

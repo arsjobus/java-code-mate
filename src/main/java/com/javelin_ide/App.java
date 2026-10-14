@@ -27,7 +27,6 @@ import com.javelin_ide.settings.SettingsTemplates;
 import com.javelin_ide.settings.Themes;
 import com.javelin_ide.settings.Themes.Theme;
 import com.javelin_ide.launch.LaunchArguments;
-import com.javelin_ide.launch.OpenRequests;
 import com.javelin_ide.ui.CompletionPopup;
 import com.javelin_ide.ui.Dialogs;
 import com.javelin_ide.ui.HoverPopup;
@@ -134,9 +133,6 @@ public final class App extends Application {
     private final Map<Tab, String> recoveryIds = new HashMap<>();
     private final java.util.concurrent.ExecutorService recoveryWriter = java.util.concurrent.Executors.newSingleThreadExecutor(r -> { Thread t = new Thread(r, "recovery-writer"); t.setDaemon(true); return t; });
     private javafx.animation.Timeline autosave;
-    /** Folders handed over by the {@code javelin} terminal command while the editor is already running. */
-    private final OpenRequests openRequests = new OpenRequests(settings.userFile().getParent().resolve(OpenRequests.DIRECTORY_NAME));
-    private javafx.animation.Timeline requestPoll;
     private Stage primaryStage;
 
     @Override public void start(Stage stage) {
@@ -235,25 +231,18 @@ public final class App extends Application {
         reportSettingsProblems(false);
         startCrashRecovery();
         openFromCommandLine();
-        startOpenRequestPolling();
     }
 
     // ---- started from the terminal: `javelin [directory]` (see packaging/macos) ----
 
-    /** Opens the directory given on the command line, or one the terminal command left behind while we were starting. */
+    /**
+     * Opens the directory given on the command line. The {@code javelin} command starts a new instance of this app for
+     * every folder ({@code open -n}), so each window has exactly one project and nothing is handed to a running window.
+     */
     private void openFromCommandLine() {
         LaunchArguments.Result launch = LaunchArguments.parse(getParameters().getRaw(), Path.of("").toAbsolutePath());
         launch.problem().ifPresent(status::setText);
-        Optional<Path> requested = launch.directory().isPresent() ? launch.directory() : openRequests.take();
-        requested.ifPresent(directory -> openProjectDirectory(directory.toFile()));
-    }
-
-    /** The app is already running: the terminal command cannot pass it arguments, so it leaves a request file to pick up. */
-    private void startOpenRequestPolling() {
-        requestPoll = new javafx.animation.Timeline(new javafx.animation.KeyFrame(javafx.util.Duration.seconds(1), e ->
-            openRequests.take().ifPresent(directory -> { openProjectDirectory(directory.toFile()); Dialogs.restoreOwner(); })));
-        requestPoll.setCycleCount(javafx.animation.Animation.INDEFINITE);
-        requestPoll.play();
+        launch.directory().ifPresent(directory -> openProjectDirectory(directory.toFile()));
     }
 
     /** Creates a menu item whose shortcut can be rebound: its id and default are registered with {@link #keys}. */
@@ -1190,6 +1179,9 @@ public final class App extends Application {
     // ---- crash recovery: unsaved buffers are copied to the user's own disk every few seconds and removed once saved or discarded ----
 
     private void startCrashRecovery() {
+        // Other javelin IDE instances (one per project) share the recovery folder: claim our own snapshots first, so
+        // their unsaved work is never offered to this window and ours is never offered to them.
+        try { recovery.startSession(); } catch (IOException e) { status.setText("Crash recovery is not shared safely with other windows: " + e.getMessage()); }
         recoveryWriter.execute(() -> recovery.purgeOlderThan(java.time.Duration.ofDays(30)));
         autosave = new javafx.animation.Timeline(new javafx.animation.KeyFrame(javafx.util.Duration.seconds(AUTOSAVE_SECONDS), e -> snapshotDirtyTabs()));
         autosave.setCycleCount(javafx.animation.Animation.INDEFINITE);
@@ -1225,7 +1217,7 @@ public final class App extends Application {
         for (Tab tab : tabs.getTabs()) {
             if (!Boolean.TRUE.equals(dirty.get(tab))) continue;
             if (!(tab.getContent() instanceof VirtualizedScrollPane<?> pane) || !(pane.getContent() instanceof CodeArea editor)) continue;
-            String id = recoveryIds.computeIfAbsent(tab, t -> RecoveryStore.newId());
+            String id = recoveryIds.computeIfAbsent(tab, t -> recovery.newSessionId());
             File file = (File) tab.getUserData();
             String text = editor.getText();
             int caret = editor.getCaretPosition(), tabIndex = tabs.getTabs().indexOf(tab);
@@ -1545,7 +1537,7 @@ public final class App extends Application {
 
     private void showError(String title, String message) { Alert a = new Alert(Alert.AlertType.ERROR); a.setTitle(title); a.setHeaderText(null); a.setContentText(message == null ? "Unknown error." : message); Dialogs.show(a); }
 
-    @Override public void stop() { treeWatcher.close(); if (autosave != null) autosave.stop(); if (requestPoll != null) requestPoll.stop(); recoveryWriter.shutdown(); language.stopAll(); processes.stopAll(); subscriptions.values().forEach(Subscription::unsubscribe); }
+    @Override public void stop() { treeWatcher.close(); if (autosave != null) autosave.stop(); recoveryWriter.shutdown(); language.stopAll(); processes.stopAll(); subscriptions.values().forEach(Subscription::unsubscribe); }
 
     public static void main(String[] args) { launch(args); }
 }
