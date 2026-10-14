@@ -18,7 +18,7 @@ everything except the JavaFX user interface: `build`, `editor`, `io`, `language`
 
 | Item | What was done | Where it is verified |
 | --- | --- | --- |
-| Crash recovery | Unsaved buffers are copied to `<config>/recovery/` every 5 seconds (only when changed). A copy is deleted when its buffer is saved or deliberately discarded, so anything found at the next start came from a session that did not end cleanly, and Code Mate offers to restore it. Uncaught exceptions write a local report to `<config>/crashes/` (stack trace, Java and OS version; never document text). | `RecoveryStoreTest`, `CrashLogTest` |
+| Crash recovery | Unsaved buffers are copied to `<config>/recovery/` every 5 seconds (only when changed). A copy is deleted when its buffer is saved or deliberately discarded, so anything found at the next start came from a session that did not end cleanly, and javelin IDE offers to restore it. Uncaught exceptions write a local report to `<config>/crashes/` (stack trace, Java and OS version; never document text). | `RecoveryStoreTest`, `CrashLogTest` |
 | Safe saving | Saves write a temporary file, flush it to disk and atomically replace the original, so a crash or full disk mid-save can no longer truncate your file. Symbolic links and file permissions are preserved. Settings files use the same code. | `FileIOTest`, `SettingsTest` |
 | Large-file testing | Files over 32 MB are refused with a clear message, files that are not UTF-8 get a clear error instead of garbled text, and syntax highlighting switches off above 1 million characters so typing stays responsive. Every parser is tested on megabyte-scale and deliberately pathological input. | `FileIOTest`, `SyntaxHighlighterTest`, `JsonTest`, `ProblemParserTest`, `TextDocumentTest` |
 | Performance profiling | See the numbers below. Tests enforce generous time ceilings so a regression to quadratic behaviour fails the build. | the large-input and pathological-input tests in each test class |
@@ -47,18 +47,19 @@ rendering cost (applying styles to a very large document) is separate and was no
 
 ## Privacy audit
 
-Code Mate has no telemetry, no update check and no cloud calls, and nothing in the build can add them quietly.
+javelin IDE has no telemetry, no update check and no cloud calls, and nothing in the build can add them quietly.
 
 What it writes to disk, all under your own account:
 
 - `<config>/settings.conf` (preferences and key bindings) and `<config>/themes/`: plain text you can read and edit.
-- `<project>/.code-mate/settings.conf`: only when you save project settings.
+- `<project>/.javelin-ide/settings.conf`: only when you save project settings.
 - `<config>/recovery/`: copies of unsaved text, owner-only permissions where the OS supports them, deleted when no longer needed and purged after 30 days.
+- `<config>/open-requests/`: short-lived files the `javelin` terminal command leaves for a running window; each is deleted as soon as it is read.
 - `<config>/crashes/`: at most the 20 newest crash reports; they contain a stack trace and version numbers, never document contents.
 - Java `Preferences` (the OS-level per-user store): recent project paths and the run, build and language-server commands you typed into dialogs.
 
-Language servers and build commands are programs you start yourself; Code Mate passes them your files and nothing else.
-Whatever network access those programs have is theirs, not Code Mate's.
+Language servers and build commands are programs you start yourself; javelin IDE passes them your files and nothing else.
+Whatever network access those programs have is theirs, not javelin IDE's.
 
 `<config>` is the platform's usual per-user directory (see `Settings.defaultUserDirectory()`).
 

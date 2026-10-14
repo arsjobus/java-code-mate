@@ -1,4 +1,4 @@
-# Code Mate
+# javelin IDE
 
 A local-first Java code editor built around the principles of intentional computing.
 
@@ -63,6 +63,25 @@ mvn javafx:run
 mvn clean package
 ```
 
+## Install on macOS
+
+Build a real app that starts without a Terminal window, and install the `javelin` command:
+
+```
+packaging/macos/build-app.sh      # needs JDK 21+ (with jpackage) and Maven; writes dist/javelin IDE.app
+packaging/macos/install.sh        # copies the app to /Applications and `javelin` to /usr/local/bin (or ~/.local/bin)
+```
+
+Then, in any folder in the terminal:
+
+```
+javelin            # open the current folder as a project
+javelin ~/code/x   # open that folder
+```
+
+If the editor is already running, the folder opens in that window. `packaging/macos/install.sh --uninstall` removes both.
+Settings are kept in `~/Library/Application Support/javelin-ide`.
+
 ## App icon
 
 The icon is drawn in code, so it is the same on Windows, macOS and Linux. To use your own, set `app.icon` in the user
@@ -70,7 +89,7 @@ settings to a PNG, JPEG or GIF (see `CUSTOMIZATION.md`). To get the built-in ico
 
 ```
 mvn compile
-java -cp target/classes com.code_mate.icon.IconExporter packaging/icons
+java -cp target/classes com.javelin_ide.icon.IconExporter packaging/icons
 ```
 
 This writes `icon.ico` (Windows), `icon.icns` (macOS) and `icon.png` (Linux).
@@ -78,7 +97,7 @@ This writes `icon.ico` (Windows), `icon.icns` (macOS) and `icon.png` (Linux).
 ## Project structure
 
 ```text
-java-code-mate/
+javelin_ide/
 ├── pom.xml
 ├── README.md
 ├── PRINCIPLES.md
@@ -92,10 +111,11 @@ java-code-mate/
 ├── SECURITY.md
 ├── CUSTOMIZATION.md
 ├── BUGS.md
+├── packaging/macos/   (build-app.sh, install.sh, the javelin command)
 └── src/
-    ├── main/java/com/code_mate/App.java
-    ├── main/java/com/code_mate/build/   (process, build, and diagnostics services)
-    ├── main/java/com/code_mate/ui/      (output, problems, and terminal panels)
+    ├── main/java/com/javelin_ide/App.java
+    ├── main/java/com/javelin_ide/build/   (process, build, and diagnostics services)
+    ├── main/java/com/javelin_ide/ui/      (output, problems, and terminal panels)
     └── main/resources/styles/editor.css
 ```
 

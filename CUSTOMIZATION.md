@@ -1,17 +1,17 @@
 # Customization
 
-Code Mate is configured with plain text files. There is no settings database, no sync and no network access:
+javelin IDE is configured with plain text files. There is no settings database, no sync and no network access:
 everything below is a file you can read, edit, copy, back up or delete.
 
 ## Where settings live
 
 | Layer | File | Notes |
 | --- | --- | --- |
-| User | Linux: `~/.config/code-mate/settings.conf` (or `$XDG_CONFIG_HOME/code-mate/`). macOS: `~/Library/Application Support/code-mate/settings.conf`. Windows: `%APPDATA%\code-mate\settings.conf` | Set `CODE_MATE_CONFIG_DIR` to use another folder. |
-| Project | `<project>/.code-mate/settings.conf` | Overrides the user layer for that project. Commit it to share it, or ignore the folder. |
+| User | Linux: `~/.config/javelin-ide/settings.conf` (or `$XDG_CONFIG_HOME/javelin-ide/`). macOS: `~/Library/Application Support/javelin-ide/settings.conf`. Windows: `%APPDATA%\javelin-ide\settings.conf` | Set `JAVELIN_IDE_CONFIG_DIR` to use another folder. |
+| Project | `<project>/.javelin-ide/settings.conf` | Overrides the user layer for that project. Commit it to share it, or ignore the folder. |
 
 Open either file from the **Settings** menu (it is created from a fully commented template on first use). Saving a
-settings file inside Code Mate applies it immediately; **Settings > Reload Settings** does the same on demand.
+settings file inside javelin IDE applies it immediately; **Settings > Reload Settings** does the same on demand.
 **Settings > Settings...** and **Project Settings...** are dialogs over the same files.
 
 ## File format
@@ -54,9 +54,9 @@ View > Zoom In / Zoom Out / Reset Zoom change the font size for the current sess
 
 Built in: Light, Dark and High Contrast (View > Theme). To add your own, put a `.css` file in the `themes` folder next to
 the user settings file; its name (without `.css`) becomes the theme name, and you select it from View > Theme or with
-`theme=<name>`. Saving a theme file inside Code Mate re-applies it.
+`theme=<name>`. Saving a theme file inside javelin IDE re-applies it.
 
-A custom theme is an ordinary JavaFX stylesheet loaded after Code Mate's own, so it can override anything. Put
+A custom theme is an ordinary JavaFX stylesheet loaded after javelin IDE's own, so it can override anything. Put
 `/* base: dark */` near the top to keep the dark theme's rules underneath and only change what you want:
 
 ```css

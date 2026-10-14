@@ -4,10 +4,10 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>com.code_mate</groupId>
-    <artifactId>code_mate</artifactId>
+    <groupId>com.javelin_ide</groupId>
+    <artifactId>javelin_ide</artifactId>
     <version>0.1.0-SNAPSHOT</version>
-    <name>Code Mate</name>
+    <name>Javelin IDE</name>
     <description>A local-first, human-directed Java code editor.</description>
 
     <properties>
@@ -68,8 +68,9 @@
                 <version>0.8.12</version>
                 <configuration>
                     <excludes>
-                        <exclude>com/code_mate/App*</exclude>
-                        <exclude>com/code_mate/ui/**</exclude>
+                        <exclude>com/javelin_ide/App*</exclude>
+                        <exclude>com/javelin_ide/Launcher*</exclude>
+                        <exclude>com/javelin_ide/ui/**</exclude>
                     </excludes>
                 </configuration>
                 <executions>
@@ -113,7 +114,7 @@
                 <artifactId>javafx-maven-plugin</artifactId>
                 <version>0.0.8</version>
                 <configuration>
-                    <mainClass>com.code_mate.App</mainClass>
+                    <mainClass>com.javelin_ide.App</mainClass>
                 </configuration>
             </plugin>
         </plugins>
