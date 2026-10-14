@@ -2,7 +2,7 @@
 
 A local-first Java code editor built around the principles of intentional computing.
 
-[Javelin IDE screenshot cover image](cover.png)
+![Javelin IDE screenshot cover image](cover.png)
 
 The editor is designed to be a tool for making software, not a platform for consuming information. It should remain useful offline, avoid unnecessary accounts and cloud dependencies, and keep automation and AI explicitly under the programmer's control.
 
