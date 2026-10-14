@@ -8,7 +8,7 @@
 # that exists and is writable, otherwise to ~/.local/bin (add it to your PATH if it is not there already).
 set -eu
 
-APP_NAME="javelin IDE"
+APP_NAME="Javelin IDE"
 here=$(cd "$(dirname "$0")" && pwd -P)
 root=$(cd "$here/../.." && pwd -P)
 
