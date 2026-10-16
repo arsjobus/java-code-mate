@@ -15,6 +15,7 @@ Included:
 - JavaFX application
 - Basic editor window
 - File open/save support
+- Image viewer: PNG, JPEG, GIF and BMP files open in a read-only tab with fit, 100% and zoom (SVG still opens as text)
 - Project documentation and design principles
 - Build and run: output panel, problems panel, line-oriented terminal, process management
 

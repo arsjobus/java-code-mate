@@ -7,6 +7,7 @@ import com.javelin_ide.editor.TextSearch;
 import com.javelin_ide.icon.AppIcon;
 import com.javelin_ide.io.CrashLog;
 import com.javelin_ide.io.FileIO;
+import com.javelin_ide.io.ImageFiles;
 import com.javelin_ide.io.ProjectFiles;
 import com.javelin_ide.io.ProjectWatcher;
 import com.javelin_ide.io.RecoveryStore;
@@ -30,6 +31,7 @@ import com.javelin_ide.launch.LaunchArguments;
 import com.javelin_ide.ui.CompletionPopup;
 import com.javelin_ide.ui.Dialogs;
 import com.javelin_ide.ui.HoverPopup;
+import com.javelin_ide.ui.ImageViewerPane;
 import com.javelin_ide.ui.OutputPanel;
 import com.javelin_ide.ui.ProblemsPanel;
 import com.javelin_ide.ui.ReferencesPanel;
@@ -730,12 +732,23 @@ public final class App extends Application {
 
     private void openFile(File file) {
         for (Tab tab : tabs.getTabs()) if (file.equals(tab.getUserData())) { tabs.getSelectionModel().select(tab); return; }
+        if (ImageFiles.isImage(file.toPath())) { openImage(file); return; }
         try {
             CodeArea editor = createEditor(); editor.replaceText(FileIO.readText(file.toPath())); editor.moveTo(0);
             Tab tab = createTab(file.getName(), editor, file); tabs.getTabs().add(tab); tabs.getSelectionModel().select(tab);
             dirty.put(tab, false); language.open(file, editor.getText()); highlight(editor);
             status.setText((SyntaxHighlighter.tooLarge(editor.getLength()) ? "Opened (large file, syntax highlighting is off): " : "Opened: ") + file.getAbsolutePath());
         } catch (IOException ex) { showError("Could not open file", ex.getMessage()); }
+    }
+
+    /** Pictures open in a read-only viewer tab: no text buffer, no language server, nothing to save. */
+    private void openImage(File file) {
+        try {
+            Tab tab = new Tab(file.getName(), ImageViewerPane.load(file)); tab.setUserData(file);
+            tab.setOnCloseRequest(e -> { if (!confirmClose(tab)) e.consume(); });
+            tabs.getTabs().add(tab); tabs.getSelectionModel().select(tab);
+            status.setText("Opened image (view only): " + file.getAbsolutePath());
+        } catch (IOException ex) { showError("Could not open image", ex.getMessage()); }
     }
 
     private void openFile(File file, int line, int column) {
@@ -880,6 +893,7 @@ public final class App extends Application {
 
     private void saveCurrent(boolean forceChoose) {
         Tab tab = tabs.getSelectionModel().getSelectedItem(); if (tab == null) return;
+        if (tab.getContent() instanceof ImageViewerPane) { status.setText("Images are view only; there is nothing to save."); return; }
         File file = (File) tab.getUserData();
         File previous = file;
         if (file == null || forceChoose) {
